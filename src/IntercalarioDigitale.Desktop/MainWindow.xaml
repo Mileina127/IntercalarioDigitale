@@ -1,0 +1,102 @@
+<Window x:Class="IntercalarioDigitale.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="GerarchIA · Gestione Documenti Pratiche"
+        Width="1120" Height="740" MinWidth="820" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource WindowBg}"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13">
+    <Grid Margin="22,18,22,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Intestazione -->
+        <DockPanel Grid.Row="0" LastChildFill="True">
+            <Button x:Name="NewButton" DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}"
+                    Content="Nuova pratica…" Click="NewButton_Click" VerticalAlignment="Center"/>
+            <StackPanel>
+                <TextBlock Text="GerarchIA" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Brand}"/>
+                <TextBlock Text="Gestione Documenti Pratiche" FontSize="24" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextMain}"/>
+                <TextBlock Text="Appunti in corso nell'intercalario digitale" Foreground="{StaticResource TextMuted}"/>
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Utente simulato -->
+        <Border Grid.Row="1" Margin="0,16,0,0" Padding="14,10" CornerRadius="8"
+                Background="{StaticResource CardBg}" BorderBrush="{StaticResource Stroke}" BorderThickness="1">
+            <WrapPanel VerticalAlignment="Center">
+                <TextBlock Text="Utente simulato" VerticalAlignment="Center" Margin="0,0,10,0"
+                           Foreground="{StaticResource TextMuted}"/>
+                <ComboBox x:Name="UserBox" Width="300" VerticalAlignment="Center" Margin="0,0,24,0"
+                          SelectionChanged="UserBox_SelectionChanged"/>
+
+                <CheckBox x:Name="LeaveBox" Content="In licenza" VerticalAlignment="Center" Margin="0,0,16,0"
+                          Click="LeaveBox_Click"/>
+
+                <StackPanel x:Name="DelegatePanel" Orientation="Horizontal" VerticalAlignment="Center"
+                            Margin="0,0,24,0" Visibility="Collapsed">
+                    <TextBlock Text="Sostituto parigrado" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Foreground="{StaticResource TextMuted}"/>
+                    <ComboBox x:Name="DelegateBox" Width="170" SelectedValuePath="Id" DisplayMemberPath="Label"
+                              SelectionChanged="DelegateBox_SelectionChanged"/>
+                </StackPanel>
+
+                <CheckBox x:Name="ViceBox" Content="Delega di inoltro al Vertice" VerticalAlignment="Center"
+                          Visibility="Collapsed" Click="ViceBox_Click"/>
+            </WrapPanel>
+        </Border>
+
+        <!-- Filtro -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,16,0,8">
+            <RadioButton x:Name="AllRadio" Content="Tutte" IsChecked="True" GroupName="filtro"
+                         Margin="0,0,18,0" Click="Filter_Click"/>
+            <RadioButton x:Name="MineRadio" Content="Assegnate a me" GroupName="filtro" Click="Filter_Click"/>
+        </StackPanel>
+
+        <!-- Elenco -->
+        <DataGrid x:Name="PracticeGrid" Grid.Row="3"
+                  AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                  CanUserResizeRows="False" SelectionMode="Single" SelectionUnit="FullRow"
+                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                  HorizontalGridLinesBrush="{StaticResource Stroke}"
+                  Background="{StaticResource CardBg}" RowBackground="{StaticResource CardBg}"
+                  BorderBrush="{StaticResource Stroke}" RowHeight="48"
+                  MouseDoubleClick="PracticeGrid_MouseDoubleClick">
+            <DataGrid.CellStyle>
+                <Style TargetType="DataGridCell">
+                    <Setter Property="BorderThickness" Value="0"/>
+                    <Setter Property="Padding" Value="12,0"/>
+                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                </Style>
+            </DataGrid.CellStyle>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="ID Pratica" Binding="{Binding Id}" Width="120"/>
+                <DataGridTextColumn Header="Nome Documento" Binding="{Binding Name}" Width="*"/>
+                <DataGridTextColumn Header="Stato" Binding="{Binding StatusText}" Width="190"/>
+                <DataGridTextColumn Header="Assegnato a" Binding="{Binding HolderText}" Width="230"/>
+                <DataGridTemplateColumn Width="64">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="•••" Tag="{Binding Id}" Padding="8,2" Margin="6,0"
+                                    ToolTip="Azioni sulla pratica" Click="RowMenu_Click"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Registro -->
+        <StackPanel Grid.Row="4" Margin="0,14,0,0">
+            <TextBlock Text="Ultimi movimenti" FontWeight="SemiBold" Margin="0,0,0,4"/>
+            <ListBox x:Name="LogList" MaxHeight="110" Background="{StaticResource CardBg}"
+                     BorderBrush="{StaticResource Stroke}" Padding="4"/>
+        </StackPanel>
+    </Grid>
+</Window>

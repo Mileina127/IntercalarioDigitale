@@ -12,6 +12,9 @@
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
   </ItemGroup>
   <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\IntercalarioDigitale.Core\IntercalarioDigitale.Core.csproj" />
   </ItemGroup>
 </Project>
