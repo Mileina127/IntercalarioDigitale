@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>IntercalarioDigitale.Desktop</RootNamespace>
+    <AssemblyName>GerarchIA</AssemblyName>
+    <!-- Permette di compilare il progetto anche da Linux/macOS (CI, strumenti di analisi). -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Docnet.Core incapsula PDFium e include le librerie native (pdfium.dll) per Windows. -->
+    <PackageReference Include="Docnet.Core" Version="2.6.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\IntercalarioDigitale.Core\IntercalarioDigitale.Core.csproj" />
+  </ItemGroup>
+</Project>

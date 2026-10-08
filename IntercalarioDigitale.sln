@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IntercalarioDigitale.Core",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IntercalarioDigitale.Cli", "src\IntercalarioDigitale.Cli\IntercalarioDigitale.Cli.csproj", "{A8824F0A-3C73-4F6C-81DD-E9EAB3510660}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IntercalarioDigitale.Desktop", "src\IntercalarioDigitale.Desktop\IntercalarioDigitale.Desktop.csproj", "{5B2E9C64-7A3D-4F18-B1C0-2D8E6F4A9B73}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IntercalarioDigitale.Core.Tests", "tests\IntercalarioDigitale.Core.Tests\IntercalarioDigitale.Core.Tests.csproj", "{9C7541AA-85D4-4D94-98E0-D7D3914D7D6C}"
 EndProject
 Global
@@ -26,6 +28,10 @@ Global
 		{9C7541AA-85D4-4D94-98E0-D7D3914D7D6C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9C7541AA-85D4-4D94-98E0-D7D3914D7D6C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9C7541AA-85D4-4D94-98E0-D7D3914D7D6C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5B2E9C64-7A3D-4F18-B1C0-2D8E6F4A9B73}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5B2E9C64-7A3D-4F18-B1C0-2D8E6F4A9B73}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5B2E9C64-7A3D-4F18-B1C0-2D8E6F4A9B73}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5B2E9C64-7A3D-4F18-B1C0-2D8E6F4A9B73}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
