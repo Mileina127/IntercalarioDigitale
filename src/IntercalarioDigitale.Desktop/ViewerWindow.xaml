@@ -108,7 +108,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="Assistente IA per Intercalario" FontWeight="SemiBold" FontSize="14"
+                        <TextBlock Grid.Row="0" Text="Assistente IA per Allegatario" FontWeight="SemiBold" FontSize="14"
                                    Margin="16,12,16,0"/>
                         <TextBlock x:Name="ScopeText" Grid.Row="1" Margin="16,6,16,0" FontSize="12"
                                    Foreground="{StaticResource TextMuted}"/>
