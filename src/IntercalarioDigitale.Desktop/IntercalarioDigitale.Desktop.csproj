@@ -11,6 +11,10 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Nei progetti WPF System.IO non è tra gli using impliciti: serve per Path, File e Directory. -->
+    <Using Include="System.IO" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- Docnet.Core incapsula PDFium e include le librerie native (pdfium.dll) per Windows. -->
     <PackageReference Include="Docnet.Core" Version="2.6.0" />
   </ItemGroup>
