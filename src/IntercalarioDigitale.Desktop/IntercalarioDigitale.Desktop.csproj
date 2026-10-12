@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Permette di avviare l'app anche con un runtime più recente (es. solo .NET 10 installato). -->
+    <RollForward>Major</RollForward>
     <RootNamespace>IntercalarioDigitale.Desktop</RootNamespace>
     <AssemblyName>GerarchIA</AssemblyName>
     <!-- Permette di compilare il progetto anche da Linux/macOS (CI, strumenti di analisi). -->
