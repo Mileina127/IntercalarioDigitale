@@ -30,7 +30,11 @@ e cancella quella cartella.
 - **Regole di flusso**: via gerarchica Sezione → Ufficio → Reparto → Vertice; un Ufficiale in licenza passa l'appunto
   al delegato, altrimenti l'appunto resta «in attesa di presa in carico»; solo i Capi Reparto possono inviare in
   tramite telematico al Capo Sezione di un altro Reparto.
-- **Viewer**: contropagina (pagine 0…n) e allegato (1…n) affiancati, con PDFium.
+- **Viewer**: contropagina e allegato affiancati, con PDFium. La colonna ai lati di ogni riquadro elenca i
+  **documenti**: a sinistra la contropagina (0) e i suoi allegati (1…n), a destra gli allegati (1…n) con i loro
+  annessi (L1.1, L1.2…). Le **pagine** del PDF aperto si sfogliano con il navigatore sotto la pagina
+  (frecce, oppure Pag↑ e Pag↓). Il pulsante «+» sotto la colonna aggiunge un allegato, un annesso o un
+  documento della contropagina.
 - **Annotazioni**: penna con mouse, stilo o dito (`InkCanvas`), tre colori e tre spessori, annulla e cancella pagina.
   I tratti sono salvati per pagina in `annotations/<documentId>.json`, senza toccare il PDF.
 - **Analisi IA**: pannello di chat con risposte simulate (concordanze, approvazioni, annotazioni), ambito selezionabile.

@@ -51,10 +51,45 @@ public sealed class BinderRepository
         return manifest ?? throw new InvalidOperationException("Manifest non valido");
     }
 
-    public AttachmentDocument AddAttachment(string binderRoot, string sourcePdfPath, string? title = null)
+    /// <summary>Aggiunge un allegato; con <paramref name="parentId"/> lo aggiunge come annesso di un allegato esistente.</summary>
+    public AttachmentDocument AddAttachment(string binderRoot, string sourcePdfPath, string? title = null, string? parentId = null)
     {
         EnsurePdfExists(sourcePdfPath);
         var manifest = LoadManifest(binderRoot);
+
+        if (!string.IsNullOrEmpty(parentId))
+        {
+            var parent = manifest.Attachments.FirstOrDefault(a => a.Id == parentId)
+                ?? throw new ArgumentException("L'allegato a cui collegare l'annesso non esiste", nameof(parentId));
+            if (!string.IsNullOrEmpty(parent.ParentId))
+            {
+                throw new ArgumentException("Un annesso non può avere a sua volta degli annessi", nameof(parentId));
+            }
+        }
+
+        var document = CopyIntoBinder(binderRoot, sourcePdfPath, title);
+        document.ParentId = string.IsNullOrEmpty(parentId) ? null : parentId;
+
+        manifest.Attachments.Add(document);
+        SaveManifest(binderRoot, manifest);
+        return document;
+    }
+
+    /// <summary>Aggiunge un documento allegato alla contropagina (compare nella colonna di sinistra del viewer).</summary>
+    public AttachmentDocument AddCoverAttachment(string binderRoot, string sourcePdfPath, string? title = null)
+    {
+        EnsurePdfExists(sourcePdfPath);
+        var manifest = LoadManifest(binderRoot);
+
+        var document = CopyIntoBinder(binderRoot, sourcePdfPath, title);
+        manifest.CoverAttachments.Add(document);
+        SaveManifest(binderRoot, manifest);
+        return document;
+    }
+
+    private static AttachmentDocument CopyIntoBinder(string binderRoot, string sourcePdfPath, string? title)
+    {
+        Directory.CreateDirectory(Path.Combine(binderRoot, AttachmentsFolderName));
 
         var document = new AttachmentDocument
         {
@@ -62,11 +97,7 @@ public sealed class BinderRepository
             RelativePdfPath = Path.Combine(AttachmentsFolderName, $"{Guid.NewGuid():N}.pdf")
         };
 
-        var destinationPath = Path.Combine(binderRoot, document.RelativePdfPath);
-        File.Copy(sourcePdfPath, destinationPath, overwrite: true);
-
-        manifest.Attachments.Add(document);
-        SaveManifest(binderRoot, manifest);
+        File.Copy(sourcePdfPath, Path.Combine(binderRoot, document.RelativePdfPath), overwrite: true);
         return document;
     }
 

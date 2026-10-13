@@ -30,6 +30,7 @@ public static class DemoData
         library.CreatePractice("Fattura Fornitore Alpha", "verdi", year: DemoYear);
 
         var p2 = library.CreatePractice("Contratto Collaborazione Beta", "rossi", year: DemoYear);
+        library.AddAttachment(p2.Id, "Condizioni economiche", parentId: FirstAttachmentId(library, p2.Id));
         p2.FromId = "verdi";
         p2.Validations.Add(Stamp(ValidationKind.Concordato, "verdi", 2023, 10, 25, 10, 15));
 
@@ -41,6 +42,16 @@ public static class DemoData
         p3.Validations.Add(Stamp(ValidationKind.Approvato, "moretti", 2023, 11, 1, 16, 30));
         p3.Validations.Add(Stamp(ValidationKind.Visto, "neri", 2023, 11, 2, 11, 0));
 
+        // Documenti di esempio per vedere le colonne di navigazione: allegati alla contropagina,
+        // altri allegati e gli annessi del primo allegato (L1.1, L1.2).
+        library.AddCoverAttachment(p3.Id, "Convocazione");
+        library.AddCoverAttachment(p3.Id, "Ordine del giorno");
+        var firstAttachment = FirstAttachmentId(library, p3.Id);
+        library.AddAttachment(p3.Id, "Planimetria sala", parentId: firstAttachment);
+        library.AddAttachment(p3.Id, "Tabella riepilogativa", parentId: firstAttachment);
+        library.AddAttachment(p3.Id, "Delibera");
+        library.AddAttachment(p3.Id, "Parere legale");
+
         library.CreatePractice("Nota Esigenze Addestrative", "verdi", year: DemoYear);
 
         var p5 = library.CreatePractice("Relazione Attività Trimestrale", "moretti", year: DemoYear);
@@ -49,6 +60,9 @@ public static class DemoData
         library.State.Log.Clear();
         library.Engine.AddLog("Pratica 2.026_3 inoltrata da L. Rossi ad A. Moretti");
     }
+
+    private static string FirstAttachmentId(PracticeLibrary library, string practiceId) =>
+        library.Binders.LoadManifest(library.GetBinderPath(practiceId)).Attachments[0].Id;
 
     private static WorkflowUser User(string id, string name, Role role, string unit, string shortUnit) => new()
     {
