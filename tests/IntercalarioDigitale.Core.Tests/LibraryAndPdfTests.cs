@@ -76,7 +76,8 @@ public sealed class LibraryAndPdfTests
 
         var practice = library.State.Practices[2];
         var manifest = library.Binders.LoadManifest(library.GetBinderPath(practice.Id));
-        Assert.Single(manifest.Attachments);
+        Assert.Equal(5, manifest.Attachments.Count);
+        Assert.Equal(2, manifest.CoverAttachments.Count);
         Assert.True(File.Exists(Path.Combine(library.GetBinderPath(practice.Id), manifest.Cover.RelativePdfPath)));
         Assert.True(File.Exists(Path.Combine(library.GetBinderPath(practice.Id), manifest.Attachments[0].RelativePdfPath)));
     }

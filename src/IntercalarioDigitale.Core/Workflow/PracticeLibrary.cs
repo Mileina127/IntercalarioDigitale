@@ -120,4 +120,46 @@ public sealed class PracticeLibrary
         Save();
         return practice;
     }
+
+    /// <summary>Aggiunge un allegato (o un annesso, con <paramref name="parentId"/>) alla pratica; senza PDF ne genera uno di esempio.</summary>
+    public AttachmentDocument AddAttachment(string practiceId, string title, string? pdfPath = null, string? parentId = null)
+    {
+        var binderPath = GetBinderPath(practiceId);
+        return WithPdf(pdfPath, title, $"Allegato alla pratica {practiceId}", path => Binders.AddAttachment(binderPath, path, title, parentId));
+    }
+
+    /// <summary>Aggiunge un documento alla contropagina della pratica; senza PDF ne genera uno di esempio.</summary>
+    public AttachmentDocument AddCoverAttachment(string practiceId, string title, string? pdfPath = null)
+    {
+        var binderPath = GetBinderPath(practiceId);
+        return WithPdf(pdfPath, title, $"Contropagina della pratica {practiceId}", path => Binders.AddCoverAttachment(binderPath, path, title));
+    }
+
+    private static AttachmentDocument WithPdf(string? pdfPath, string title, string subtitle, Func<string, AttachmentDocument> add)
+    {
+        if (!string.IsNullOrWhiteSpace(pdfPath))
+        {
+            return add(pdfPath);
+        }
+
+        var tempFolder = Path.Combine(Path.GetTempPath(), "gerarchia-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(tempFolder);
+            var file = Path.Combine(tempFolder, "documento.pdf");
+            File.WriteAllBytes(file, SamplePdfFactory.Create(title, subtitle, 2));
+            return add(file);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempFolder, recursive: true);
+            }
+            catch (IOException)
+            {
+                // cartella temporanea: se resta lì non è un problema
+            }
+        }
+    }
 }

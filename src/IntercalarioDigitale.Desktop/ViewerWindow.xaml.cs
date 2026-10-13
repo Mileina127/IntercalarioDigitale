@@ -12,7 +12,6 @@ namespace IntercalarioDigitale.Desktop;
 
 public partial class ViewerWindow : Window
 {
-    private const string CoverDocumentId = "cover";
     private static readonly string[] Scopes = ["Intero documento", "Allegato corrente", "Leggi banca dati"];
     private static readonly ValidationKind[] Kinds = [ValidationKind.Concordato, ValidationKind.Approvato, ValidationKind.Visto];
 
@@ -20,8 +19,7 @@ public partial class ViewerWindow : Window
     private readonly Practice _practice;
     private readonly WorkflowUser _user;
     private readonly string _binderPath;
-    private readonly BinderManifest _manifest;
-    private readonly AttachmentDocument? _attachment;
+    private BinderManifest _manifest;
 
     private string _scope = Scopes[1];
     private Color _penColor = Colors.Red;
@@ -37,7 +35,6 @@ public partial class ViewerWindow : Window
         _user = library.Engine.GetUser(userId);
         _binderPath = library.GetBinderPath(practiceId);
         _manifest = library.Binders.LoadManifest(_binderPath);
-        _attachment = _manifest.Attachments.FirstOrDefault();
 
         Title = $"Contropagina e allegato · {_practice.Id}";
         IdText.Text = _practice.Id;
@@ -47,39 +44,140 @@ public partial class ViewerWindow : Window
 
         CoverPane.AnnotationsChanged += Pane_AnnotationsChanged;
         AttachmentPane.AnnotationsChanged += Pane_AnnotationsChanged;
+        CoverPane.AddRequested += CoverPane_AddRequested;
+        AttachmentPane.AddRequested += AttachmentPane_AddRequested;
+        AttachmentPane.DocumentChanged += (_, _) => UpdateScopeText();
 
         LoadPanes();
         BuildSuggestions();
         RefreshValidations();
         UpdateScopeText();
-        AddBubble(SimulatedAssistant.Greeting(_attachment?.Title ?? _practice.Name), fromUser: false);
+        AddBubble(SimulatedAssistant.Greeting(AttachmentPane.CurrentTitle ?? _practice.Name), fromUser: false);
     }
 
     // ---------- pagine ----------
 
-    private void LoadPanes()
+    private void LoadPanes(string? selectCoverId = null, string? selectAttachmentId = null)
     {
-        var coverPath = Path.Combine(_binderPath, _manifest.Cover.RelativePdfPath);
+        _manifest = _library.Binders.LoadManifest(_binderPath);
+
         CoverPane.RailOnRight = false;
-        CoverPane.Load(
+        CoverPane.LoadDocuments(
             "CONTROPAGINA",
-            coverPath,
-            index => index.ToString(),
-            _library.Binders.LoadAnnotations(_binderPath, CoverDocumentId));
+            ToPaneDocuments(BinderLayout.CoverSide(_manifest)),
+            LoadAnnotations,
+            selectCoverId);
 
         AttachmentPane.RailOnRight = true;
-        if (_attachment is null)
+        var attachments = BinderLayout.AttachmentSide(_manifest);
+        if (attachments.Count == 0)
         {
             StatusText.Text = "Questa pratica non ha allegati.";
+        }
+
+        AttachmentPane.LoadDocuments(
+            "ALLEGATO",
+            ToPaneDocuments(attachments),
+            LoadAnnotations,
+            selectAttachmentId);
+    }
+
+    private IReadOnlyList<PageAnnotation> LoadAnnotations(string documentId) =>
+        _library.Binders.LoadAnnotations(_binderPath, documentId);
+
+    private IReadOnlyList<PaneDocument> ToPaneDocuments(IReadOnlyList<BinderItem> items) =>
+        items
+            .Select(item => new PaneDocument(
+                item.DocumentId,
+                item.Label,
+                item.Title,
+                Path.Combine(_binderPath, item.RelativePdfPath),
+                item.IsAnnex))
+            .ToList();
+
+    // ---------- aggiunta di documenti ----------
+
+    private void CoverPane_AddRequested(object? sender, EventArgs e)
+    {
+        var menu = NewMenu(CoverPane.AddAnchor);
+        AddMenuItem(menu, "Aggiungi un documento alla contropagina…", () => AddFromFile(toCover: true, parent: null));
+        menu.IsOpen = true;
+    }
+
+    private void AttachmentPane_AddRequested(object? sender, EventArgs e)
+    {
+        var menu = NewMenu(AttachmentPane.AddAnchor);
+        AddMenuItem(menu, "Aggiungi un allegato…", () => AddFromFile(toCover: false, parent: null));
+
+        var parent = CurrentTopLevelAttachment();
+        if (parent is not null)
+        {
+            var label = BinderLayout.AttachmentSide(_manifest).First(i => i.DocumentId == parent.Id).Label;
+            AddMenuItem(menu, $"Aggiungi un annesso all'allegato {label}…", () => AddFromFile(toCover: false, parent: parent));
+        }
+
+        menu.IsOpen = true;
+    }
+
+    /// <summary>L'allegato (non annesso) a cui appartiene il documento aperto a destra.</summary>
+    private AttachmentDocument? CurrentTopLevelAttachment()
+    {
+        var current = _manifest.Attachments.FirstOrDefault(a => a.Id == AttachmentPane.CurrentDocumentId);
+        if (current is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrEmpty(current.ParentId))
+        {
+            return current;
+        }
+
+        return _manifest.Attachments.FirstOrDefault(a => a.Id == current.ParentId) ?? current;
+    }
+
+    private static ContextMenu NewMenu(FrameworkElement anchor) => new()
+    {
+        PlacementTarget = anchor,
+        Placement = System.Windows.Controls.Primitives.PlacementMode.Top
+    };
+
+    private static void AddMenuItem(ContextMenu menu, string header, Action action)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += (_, _) => action();
+        menu.Items.Add(item);
+    }
+
+    private void AddFromFile(bool toCover, AttachmentDocument? parent)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "Documenti PDF (*.pdf)|*.pdf",
+            Title = toCover ? "Scegli il PDF da aggiungere alla contropagina" : parent is null ? "Scegli il PDF dell'allegato" : "Scegli il PDF dell'annesso"
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
             return;
         }
 
-        var attachmentPath = Path.Combine(_binderPath, _attachment.RelativePdfPath);
-        AttachmentPane.Load(
-            "ALLEGATO",
-            attachmentPath,
-            index => (index + 1).ToString(),
-            _library.Binders.LoadAnnotations(_binderPath, _attachment.Id));
+        try
+        {
+            var title = Path.GetFileNameWithoutExtension(dialog.FileName);
+            var added = toCover
+                ? _library.AddCoverAttachment(_practice.Id, title, dialog.FileName)
+                : _library.AddAttachment(_practice.Id, title, dialog.FileName, parent?.Id);
+
+            LoadPanes(
+                selectCoverId: toCover ? added.Id : CoverPane.CurrentDocumentId,
+                selectAttachmentId: toCover ? AttachmentPane.CurrentDocumentId : added.Id);
+            StatusText.Text = $"Aggiunto «{title}».";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Impossibile aggiungere il PDF: " + ex.Message;
+        }
     }
 
     private void StructButton_Click(object sender, RoutedEventArgs e) =>
@@ -138,7 +236,7 @@ public partial class ViewerWindow : Window
         }
     }
 
-    private void Pane_AnnotationsChanged(object? sender, EventArgs e)
+    private void Pane_AnnotationsChanged(object? sender, DocumentEventArgs e)
     {
         if (sender is not PdfPane pane)
         {
@@ -146,15 +244,10 @@ public partial class ViewerWindow : Window
         }
 
         _lastInkPane = pane;
-        var documentId = ReferenceEquals(pane, CoverPane) ? CoverDocumentId : _attachment?.Id;
-        if (documentId is null)
-        {
-            return;
-        }
 
         try
         {
-            _library.Binders.SaveAnnotations(_binderPath, documentId, pane.ExportAnnotations());
+            _library.Binders.SaveAnnotations(_binderPath, e.DocumentId, pane.ExportAnnotations(e.DocumentId));
             StatusText.Text = "Annotazioni salvate.";
         }
         catch (Exception ex)
@@ -211,7 +304,11 @@ public partial class ViewerWindow : Window
         menu.IsOpen = true;
     }
 
-    private void UpdateScopeText() => ScopeText.Text = "Ambito analisi: " + _scope;
+    private void UpdateScopeText()
+    {
+        var detail = _scope == Scopes[1] && AttachmentPane.CurrentTitle is { } title ? $" · {title}" : string.Empty;
+        ScopeText.Text = "Ambito analisi: " + _scope + detail;
+    }
 
     private void BuildSuggestions()
     {
@@ -298,7 +395,7 @@ public partial class ViewerWindow : Window
         _practice,
         _library.State.Users,
         _scope,
-        _attachment?.Title ?? _practice.Name,
+        AttachmentPane.CurrentTitle ?? _practice.Name,
         AttachmentPane.PageCount,
         CoverPane.AnnotatedPageCount,
         AttachmentPane.AnnotatedPageCount);

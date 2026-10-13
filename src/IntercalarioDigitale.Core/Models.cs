@@ -4,6 +4,11 @@ public sealed class BinderManifest
 {
     public string Version { get; init; } = "1.0";
     public CoverDocument Cover { get; set; } = new();
+
+    /// <summary>Documenti allegati alla contropagina (etichette 1…n; la contropagina stessa è la 0).</summary>
+    public List<AttachmentDocument> CoverAttachments { get; set; } = [];
+
+    /// <summary>Allegati (1…n) e loro annessi (L1.1, L1.2…): un annesso ha <see cref="AttachmentDocument.ParentId"/> valorizzato.</summary>
     public List<AttachmentDocument> Attachments { get; set; } = [];
 }
 
@@ -19,6 +24,9 @@ public sealed class AttachmentDocument
     public string Title { get; set; } = string.Empty;
     public string RelativePdfPath { get; set; } = string.Empty;
     public DateTimeOffset AddedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Se valorizzato, il documento è un annesso dell'allegato con questo Id.</summary>
+    public string? ParentId { get; set; }
 }
 
 public sealed class InkStrokePoint

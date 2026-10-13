@@ -332,14 +332,17 @@ public partial class MainWindow : Window
             var binder = _library.GetBinderPath(practice.Id);
             var manifest = _library.Binders.LoadManifest(binder);
 
-            var cover = Path.Combine(binder, manifest.Cover.RelativePdfPath);
-            File.Copy(cover, Path.Combine(folder, $"{practice.Id}_contropagina.pdf"), overwrite: true);
+            var files = BinderLayout.CoverSide(manifest)
+                .Select(item => (Item: item, Name: item.Label == "0" ? "contropagina" : $"contropagina_{item.Label}"))
+                .Concat(BinderLayout.AttachmentSide(manifest)
+                    .Select(item => (Item: item, Name: item.IsAnnex ? $"annesso_{item.Label}" : $"allegato{item.Label}")));
 
-            var count = 1;
-            foreach (var attachment in manifest.Attachments)
+            var count = 0;
+            foreach (var (item, name) in files)
             {
-                var source = Path.Combine(binder, attachment.RelativePdfPath);
-                File.Copy(source, Path.Combine(folder, $"{practice.Id}_allegato{(count > 1 ? count.ToString() : string.Empty)}.pdf"), overwrite: true);
+                var source = Path.Combine(binder, item.RelativePdfPath);
+                var target = Path.Combine(folder, $"{practice.Id}_{name.Replace('.', '_')}.pdf");
+                File.Copy(source, target, overwrite: true);
                 count++;
             }
 

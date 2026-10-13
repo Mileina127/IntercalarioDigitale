@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Ink;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using IntercalarioDigitale.Core;
@@ -8,25 +9,63 @@ using IntercalarioDigitale.Desktop.Services;
 
 namespace IntercalarioDigitale.Desktop;
 
-/// <summary>Riquadro con le pagine di un PDF (colonna dei numeri di pagina, pagina disegnata da PDFium, penna sopra).</summary>
+/// <summary>Un documento (PDF) mostrato nella colonna laterale di un riquadro.</summary>
+public sealed record PaneDocument(string Id, string Label, string Title, string FullPath, bool IsAnnex);
+
+public sealed class DocumentEventArgs : EventArgs
+{
+    public DocumentEventArgs(string documentId) => DocumentId = documentId;
+
+    public string DocumentId { get; }
+}
+
+/// <summary>
+/// Riquadro del viewer: la colonna laterale elenca i documenti (allegati e annessi), il navigatore sotto
+/// la pagina sfoglia le pagine del PDF scelto. La pagina è disegnata da PDFium, la penna sta sopra.
+/// </summary>
 public partial class PdfPane : UserControl
 {
     private const double LogicalWidth = 595;
 
-    public sealed class PageItem
+    public sealed class RailItem
     {
         public string Label { get; init; } = string.Empty;
+        public string Title { get; init; } = string.Empty;
         public Visibility InkVisibility { get; init; } = Visibility.Collapsed;
+        public Thickness Indent { get; init; }
+        public double LabelSize { get; init; } = 14;
     }
 
-    private readonly Dictionary<int, StrokeCollection> _strokesByPage = new();
+    private sealed class DocState
+    {
+        public DocState(PaneDocument info, IReadOnlyList<PageAnnotation> annotations)
+        {
+            Info = info;
+            foreach (var annotation in annotations)
+            {
+                if (annotation.PageIndex >= 0)
+                {
+                    Strokes[annotation.PageIndex] = InkConverter.ToStrokes(annotation.Strokes);
+                }
+            }
+        }
+
+        public PaneDocument Info { get; }
+        public PdfiumDocument? Pdf { get; set; }
+        public string? Error { get; set; }
+        public Dictionary<int, StrokeCollection> Strokes { get; } = new();
+        public int Page { get; set; }
+
+        public bool HasInk => Strokes.Values.Any(s => s.Count > 0);
+    }
+
+    private readonly List<DocState> _docs = new();
     private readonly DispatcherTimer _renderTimer;
-    private PdfiumDocument? _document;
-    private Func<int, string> _labelOf = index => (index + 1).ToString();
+    private DocState? _current;
     private int _pageIndex = -1;
     private double _logicalHeight = 842;
     private bool _updatingRail;
-    private (int Page, int Width) _renderedKey = (-1, -1);
+    private (string Doc, int Page, int Width) _renderedKey = (string.Empty, -1, -1);
 
     public PdfPane()
     {
@@ -40,57 +79,66 @@ public partial class PdfPane : UserControl
         };
 
         SetPen(Colors.Red, 3);
+        UpdatePager();
     }
 
     /// <summary>Cambia ogni volta che l'utente aggiunge, annulla o cancella dei tratti.</summary>
-    public event EventHandler? AnnotationsChanged;
+    public event EventHandler<DocumentEventArgs>? AnnotationsChanged;
+
+    /// <summary>L'utente ha premuto «+» sotto la colonna dei documenti.</summary>
+    public event EventHandler? AddRequested;
+
+    /// <summary>È stato scelto un altro documento nella colonna laterale.</summary>
+    public event EventHandler? DocumentChanged;
 
     public bool RailOnRight { get; set; }
 
-    public int PageCount => _document?.PageCount ?? 0;
+    /// <summary>Elemento a cui agganciare un menu aperto dal pulsante «+».</summary>
+    public FrameworkElement AddAnchor => AddButton;
 
-    public int AnnotatedPageCount => _strokesByPage.Count(pair => pair.Value.Count > 0);
+    public string? CurrentDocumentId => _current?.Info.Id;
 
-    public bool HasDocument => _document is not null;
+    public string? CurrentTitle => _current?.Info.Title;
 
-    /// <summary>Apre un PDF. Restituisce false (e mostra il motivo nel riquadro) se non si riesce a leggerlo.</summary>
-    public bool Load(string title, string pdfPath, Func<int, string> labelOf, IReadOnlyList<PageAnnotation> annotations)
+    /// <summary>Pagine del PDF aperto.</summary>
+    public int PageCount => _current?.Pdf?.PageCount ?? 0;
+
+    /// <summary>Pagine con almeno un tratto, su tutti i documenti del riquadro.</summary>
+    public int AnnotatedPageCount => _docs.Sum(d => d.Strokes.Count(pair => pair.Value.Count > 0));
+
+    public bool HasDocument => _current?.Pdf is not null;
+
+    /// <summary>Mostra l'elenco dei documenti e apre quello indicato (o il primo).</summary>
+    public void LoadDocuments(
+        string title,
+        IReadOnlyList<PaneDocument> documents,
+        Func<string, IReadOnlyList<PageAnnotation>> loadAnnotations,
+        string? selectId = null)
     {
         TitleText.Text = title;
-        _labelOf = labelOf;
-        _document = null;
+        _docs.Clear();
+        _current = null;
         _pageIndex = -1;
-        _renderedKey = (-1, -1);
-        _strokesByPage.Clear();
-        PageImage.Source = null;
-        Ink.Strokes = new StrokeCollection();
+        _renderedKey = (string.Empty, -1, -1);
 
-        try
+        foreach (var document in documents)
         {
-            _document = PdfiumDocument.Open(pdfPath);
-        }
-        catch (Exception ex)
-        {
-            SubText.Text = "Impossibile aprire il PDF: " + ex.Message;
-            Rail.ItemsSource = null;
-            return false;
+            _docs.Add(new DocState(document, loadAnnotations(document.Id)));
         }
 
-        foreach (var annotation in annotations)
-        {
-            if (annotation.PageIndex >= 0 && annotation.PageIndex < _document.PageCount)
-            {
-                _strokesByPage[annotation.PageIndex] = InkConverter.ToStrokes(annotation.Strokes);
-            }
-        }
+        Grid.SetColumn(RailBox, RailOnRight ? 2 : 0);
+        RailBox.Margin = RailOnRight ? new Thickness(8, 0, 0, 0) : new Thickness(0, 0, 8, 0);
 
-        Grid.SetColumn(Rail, RailOnRight ? 2 : 0);
-        Rail.Margin = RailOnRight ? new Thickness(8, 0, 0, 0) : new Thickness(0, 0, 8, 0);
-
-        SubText.Text = $"{Path.GetFileName(pdfPath)} · {_document.PageCount} pag.";
         RefreshRail();
-        ShowPage(0);
-        return true;
+
+        var target = _docs.FirstOrDefault(d => d.Info.Id == selectId) ?? _docs.FirstOrDefault();
+        if (target is null)
+        {
+            ShowEmpty("Nessun documento.");
+            return;
+        }
+
+        ShowDocument(target);
     }
 
     public void SetAnnotating(bool enabled)
@@ -137,10 +185,17 @@ public partial class PdfPane : UserControl
         return true;
     }
 
-    public List<PageAnnotation> ExportAnnotations()
+    /// <summary>I tratti di un documento, pagina per pagina, pronti da salvare.</summary>
+    public List<PageAnnotation> ExportAnnotations(string documentId)
     {
         var result = new List<PageAnnotation>();
-        foreach (var pair in _strokesByPage.OrderBy(p => p.Key))
+        var state = _docs.FirstOrDefault(d => d.Info.Id == documentId);
+        if (state is null)
+        {
+            return result;
+        }
+
+        foreach (var pair in state.Strokes.OrderBy(p => p.Key))
         {
             if (pair.Value.Count == 0)
             {
@@ -157,73 +212,134 @@ public partial class PdfPane : UserControl
         return result;
     }
 
-    private void NotifyChanged()
+    // ---------- documenti ----------
+
+    private void ShowEmpty(string message)
     {
-        RefreshRail();
-        AnnotationsChanged?.Invoke(this, EventArgs.Empty);
+        _current = null;
+        _pageIndex = -1;
+        SubText.Text = message;
+        PageImage.Source = null;
+        Ink.Strokes = new StrokeCollection();
+        UpdatePager();
+    }
+
+    private void ShowDocument(DocState state)
+    {
+        _current = state;
+
+        _updatingRail = true;
+        Rail.SelectedIndex = _docs.IndexOf(state);
+        _updatingRail = false;
+
+        if (state.Pdf is null && state.Error is null)
+        {
+            try
+            {
+                state.Pdf = PdfiumDocument.Open(state.Info.FullPath);
+            }
+            catch (Exception ex)
+            {
+                state.Error = ex.Message;
+            }
+        }
+
+        if (state.Pdf is null)
+        {
+            _pageIndex = -1;
+            SubText.Text = $"{state.Info.Title}: impossibile aprire il PDF ({state.Error})";
+            PageImage.Source = null;
+            Ink.Strokes = new StrokeCollection();
+            UpdatePager();
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        SubText.Text = $"{state.Info.Title} · {state.Pdf.PageCount} pag.";
+        _renderedKey = (string.Empty, -1, -1);
+        ShowPage(Math.Clamp(state.Page, 0, state.Pdf.PageCount - 1));
+        DocumentChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void RefreshRail()
     {
-        if (_document is null)
-        {
-            return;
-        }
-
         _updatingRail = true;
-        var items = new List<PageItem>();
-        for (var i = 0; i < _document.PageCount; i++)
+        var items = new List<RailItem>();
+        foreach (var doc in _docs)
         {
-            var hasInk = _strokesByPage.TryGetValue(i, out var strokes) && strokes.Count > 0;
-            items.Add(new PageItem
+            items.Add(new RailItem
             {
-                Label = _labelOf(i),
-                InkVisibility = hasInk ? Visibility.Visible : Visibility.Collapsed
+                Label = doc.Info.Label,
+                Title = doc.Info.Title,
+                InkVisibility = doc.HasInk ? Visibility.Visible : Visibility.Collapsed,
+                Indent = doc.Info.IsAnnex ? new Thickness(8, 0, 0, 0) : new Thickness(0),
+                LabelSize = doc.Info.IsAnnex ? 12 : 14
             });
         }
 
         Rail.ItemsSource = items;
-        if (_pageIndex >= 0 && _pageIndex < items.Count)
+        if (_current is not null)
         {
-            Rail.SelectedIndex = _pageIndex;
+            Rail.SelectedIndex = _docs.IndexOf(_current);
         }
 
         _updatingRail = false;
     }
 
+    // ---------- pagine ----------
+
     private void ShowPage(int index)
     {
-        if (_document is null || index < 0 || index >= _document.PageCount)
+        var pdf = _current?.Pdf;
+        if (_current is null || pdf is null || index < 0 || index >= pdf.PageCount)
         {
             return;
         }
 
         _pageIndex = index;
+        _current.Page = index;
 
-        var (width, height) = _document.GetPageSize(index);
+        var (width, height) = pdf.GetPageSize(index);
         _logicalHeight = LogicalWidth * height / width;
         PageGrid.Width = LogicalWidth;
         PageGrid.Height = _logicalHeight;
 
-        if (!_strokesByPage.TryGetValue(index, out var strokes))
+        if (!_current.Strokes.TryGetValue(index, out var strokes))
         {
             strokes = new StrokeCollection();
-            _strokesByPage[index] = strokes;
+            _current.Strokes[index] = strokes;
         }
 
         Ink.Strokes = strokes;
 
-        _updatingRail = true;
-        Rail.SelectedIndex = index;
-        _updatingRail = false;
-
-        _renderedKey = (-1, -1);
+        UpdatePager();
+        _renderedKey = (string.Empty, -1, -1);
         RenderCurrentPage();
+    }
+
+    private void UpdatePager()
+    {
+        var pdf = _current?.Pdf;
+        var count = pdf?.PageCount ?? 0;
+
+        if (pdf is null || _pageIndex < 0)
+        {
+            PagerText.Text = "—";
+            PrevButton.IsEnabled = false;
+            NextButton.IsEnabled = false;
+            return;
+        }
+
+        var hasInk = _current!.Strokes.TryGetValue(_pageIndex, out var strokes) && strokes.Count > 0;
+        PagerText.Text = $"Pagina {_pageIndex + 1} di {count}" + (hasInk ? " · annotata" : string.Empty);
+        PrevButton.IsEnabled = _pageIndex > 0;
+        NextButton.IsEnabled = _pageIndex < count - 1;
     }
 
     private void RenderCurrentPage()
     {
-        if (_document is null || _pageIndex < 0)
+        var pdf = _current?.Pdf;
+        if (_current is null || pdf is null || _pageIndex < 0)
         {
             return;
         }
@@ -237,15 +353,16 @@ public partial class PdfPane : UserControl
         var dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
         var pixelWidth = (int)Math.Clamp(LogicalWidth * scale * dpi, 240, 2600);
 
-        if (_renderedKey == (_pageIndex, pixelWidth))
+        var key = (_current.Info.Id, _pageIndex, pixelWidth);
+        if (_renderedKey == key)
         {
             return;
         }
 
         try
         {
-            PageImage.Source = _document.Render(_pageIndex, pixelWidth);
-            _renderedKey = (_pageIndex, pixelWidth);
+            PageImage.Source = pdf.Render(_pageIndex, pixelWidth);
+            _renderedKey = key;
         }
         catch (Exception ex)
         {
@@ -253,14 +370,52 @@ public partial class PdfPane : UserControl
         }
     }
 
+    private void NotifyChanged()
+    {
+        RefreshRail();
+        UpdatePager();
+        if (_current is not null)
+        {
+            AnnotationsChanged?.Invoke(this, new DocumentEventArgs(_current.Info.Id));
+        }
+    }
+
+    // ---------- eventi ----------
+
     private void Rail_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_updatingRail || Rail.SelectedIndex < 0)
+        if (_updatingRail || Rail.SelectedIndex < 0 || Rail.SelectedIndex >= _docs.Count)
         {
             return;
         }
 
-        ShowPage(Rail.SelectedIndex);
+        var target = _docs[Rail.SelectedIndex];
+        if (!ReferenceEquals(target, _current))
+        {
+            ShowDocument(target);
+        }
+    }
+
+    private void PrevButton_Click(object sender, RoutedEventArgs e) => ShowPage(_pageIndex - 1);
+
+    private void NextButton_Click(object sender, RoutedEventArgs e) => ShowPage(_pageIndex + 1);
+
+    private void AddButton_Click(object sender, RoutedEventArgs e) => AddRequested?.Invoke(this, EventArgs.Empty);
+
+    private void Pane_PreviewMouseDown(object sender, MouseButtonEventArgs e) => Focus();
+
+    private void Pane_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.PageDown)
+        {
+            ShowPage(_pageIndex + 1);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.PageUp)
+        {
+            ShowPage(_pageIndex - 1);
+            e.Handled = true;
+        }
     }
 
     private void Host_SizeChanged(object sender, SizeChangedEventArgs e)
