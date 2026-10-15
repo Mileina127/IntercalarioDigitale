@@ -27,9 +27,20 @@ e cancella quella cartella.
 - **Elenco pratiche**: menu `•••` con Leggi, Scarica, Manda avanti, Restituisci; doppio clic per leggere.
 - **Utente simulato** (in alto): cambia ruolo (Capo Sezione, Capo Ufficio, Capo Reparto, Autorità di vertice),
   imposta la licenza con il sostituto parigrado e la delega di inoltro al Vertice per i Capi Ufficio.
-- **Regole di flusso**: via gerarchica Sezione → Ufficio → Reparto → Vertice; un Ufficiale in licenza passa l'appunto
-  al delegato, altrimenti l'appunto resta «in attesa di presa in carico»; solo i Capi Reparto possono inviare in
-  tramite telematico al Capo Sezione di un altro Reparto.
+- **Linea gerarchica fissa**: Capo Sezione → Capo Ufficio → Capo Reparto; poi, per ogni livello decisionale da **C4**
+  (il meno elevato) fino a quello scelto, Capo Sezione di vertice → Capo Ufficio di vertice → Autorità di vertice.
+  Il **livello decisionale** (Reparto, C4, C3, C2, C1) lo sceglie il Capo Sezione che carica la pratica e fissa subito
+  tutto il percorso: con C3 l'appunto attraversa Sezione, Ufficio e Reparto, poi la terna C4 e infine la terna C3.
+  Non si può saltare nessun passo; il pannello «PERCORSO» del viewer mostra tappe fatte, attuale e future.
+- **Altre regole**: un Ufficiale in licenza passa l'appunto al delegato (stesso ruolo e stesso livello), altrimenti
+  l'appunto resta «in attesa di presa in carico»; solo i Capi Reparto possono inviare in tramite telematico al
+  Capo Sezione di un altro Reparto (l'appunto attraversa la linea di quel Reparto e poi riprende la salita).
+  Concordato: Capi Sezione e Ufficio (anche di vertice); Approvato: Capi Reparto e Autorità; Visto: tutti.
+- **Firme PNG**: Capi Ufficio, Capi Reparto e le 4 Autorità di vertice (non i Capi Sezione, né il Capo Sezione e il
+  Capo Ufficio di vertice) caricano la propria firma da «Firma…» (schermata principale). Premendo Concordo, Approvo
+  o Visto la firma compare sulla pagina aperta della contropagina: si trascina dove si vuole, la rotella la
+  ingrandisce o la riduce, poi «Conferma». La firma è copiata in `firme/` dell'intercalario, quindi un timbro già
+  apposto non cambia anche se la firma viene poi sostituita. Per provare, al primo avvio ognuno riceve una firma di esempio.
 - **Viewer**: contropagina e allegato affiancati, con PDFium. La colonna ai lati di ogni riquadro elenca i
   **documenti**: a sinistra la contropagina (0) e i suoi allegati (1…n), a destra gli allegati (1…n) con i loro
   annessi (L1.1, L1.2…). Le **pagine** del PDF aperto si sfogliano con il navigatore sotto la pagina
@@ -55,6 +66,7 @@ Quando inizializzi un intercalario viene creata questa struttura:
 - `manifest.json`
 - `cover.pdf` (o `cover.docx`)
 - `attachments/*.pdf` (o `*.docx`)
+- `firme/*.png` (firme apposte con i timbri)
 - `originals/<documentId>.*` (prima versione dei documenti sostituiti)
 - `annotations/<documentId>.json`
 

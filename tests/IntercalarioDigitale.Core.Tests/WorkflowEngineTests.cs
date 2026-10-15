@@ -14,40 +14,23 @@ public sealed class WorkflowEngineTests
     }
 
     [Fact]
-    public void ForwardTargets_FollowTheHierarchy()
+    public void ForwardTargets_FollowTheFixedRoute()
     {
-        var (_, engine) = CreateEngine();
+        var (state, engine) = CreateEngine();
+        var practice = state.Practices[0];
 
-        var fromSezione = engine.GetForwardTargets("verdi");
-        Assert.All(fromSezione, t => Assert.Equal(Role.CapoUfficio, engine.GetUser(t.RecipientId).Role));
-        Assert.Equal(2, fromSezione.Count);
+        var fromSezione = engine.GetForwardTargets(practice, "verdi");
+        Assert.Equal(new[] {new ForwardTarget(TransferMode.Forward, "rossi")}, fromSezione);
 
-        var fromReparto = engine.GetForwardTargets("moretti");
-        Assert.Contains(fromReparto, t => t.Mode == TransferMode.Forward && t.RecipientId == "neri");
+        practice.HolderId = "moretti";
+        practice.RouteIndex = 2;
+        var fromReparto = engine.GetForwardTargets(practice, "moretti");
         Assert.Contains(fromReparto, t => t.Mode == TransferMode.Tramite && t.RecipientId == "bianchi" && t.DepartmentId == "log");
         Assert.DoesNotContain(fromReparto, t => t.RecipientId == "verdi");
+        Assert.DoesNotContain(fromReparto, t => t.Mode == TransferMode.Forward);
 
-        Assert.Empty(engine.GetForwardTargets("neri"));
-    }
-
-    [Fact]
-    public void CapoUfficio_NeedsDelegationToReachVertice()
-    {
-        var (_, engine) = CreateEngine();
-
-        Assert.DoesNotContain(engine.GetForwardTargets("rossi"), t => t.RecipientId == "neri");
-
-        engine.SetViceDelegation("rossi", true);
-
-        Assert.Contains(engine.GetForwardTargets("rossi"), t => t.RecipientId == "neri");
-    }
-
-    [Fact]
-    public void ViceDelegation_IsOnlyForCapiUfficio()
-    {
-        var (_, engine) = CreateEngine();
-
-        Assert.Throws<InvalidOperationException>(() => engine.SetViceDelegation("verdi", true));
+        practice.HolderId = "neri";
+        Assert.Empty(engine.GetForwardTargets(practice, "neri"));
     }
 
     [Fact]
@@ -169,6 +152,11 @@ public sealed class WorkflowEngineTests
     [InlineData("verdi", ValidationKind.Approvato, false)]
     [InlineData("verdi", ValidationKind.Visto, true)]
     [InlineData("neri", ValidationKind.Visto, true)]
+    [InlineData("sezv4", ValidationKind.Concordato, true)]
+    [InlineData("uffv4", ValidationKind.Concordato, true)]
+    [InlineData("sezv4", ValidationKind.Approvato, false)]
+    [InlineData("autv4", ValidationKind.Approvato, true)]
+    [InlineData("autv4", ValidationKind.Concordato, false)]
     public void CanStamp_DependsOnTheRole(string userId, ValidationKind kind, bool expected)
     {
         var (_, engine) = CreateEngine();

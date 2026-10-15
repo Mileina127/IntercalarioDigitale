@@ -25,7 +25,16 @@
                 <TextBlock x:Name="NoteText" FontSize="11" HorizontalAlignment="Center"
                            Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis"
                            MaxWidth="360" Visibility="Collapsed"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,4,0,0">
+                <StackPanel x:Name="PlacementBar" Orientation="Horizontal" HorizontalAlignment="Center"
+                            Margin="0,4,0,0" Visibility="Collapsed">
+                    <TextBlock x:Name="PlacementText" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"
+                               Foreground="{StaticResource TextMuted}"
+                               Text="Trascina la firma sulla pagina · rotella per ingrandire o ridurre"/>
+                    <Button Content="Conferma" FontSize="11" Padding="10,2" Margin="0,0,4,0"
+                            Style="{StaticResource PrimaryButton}" Click="PlacementConfirm_Click"/>
+                    <Button Content="Annulla" FontSize="11" Padding="10,2" Click="PlacementCancel_Click"/>
+                </StackPanel>
+                <StackPanel x:Name="ToolsBar" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,4,0,0">
                     <Button x:Name="DownloadButton" Content="Scarica copia" FontSize="11" Padding="8,2"
                             Margin="0,0,4,0" ToolTip="Salva una copia del documento per modificarla" Click="DownloadButton_Click"/>
                     <Button x:Name="ReplaceButton" Content="Sostituisci…" FontSize="11" Padding="8,2"
@@ -84,9 +93,13 @@
                             <Grid x:Name="PageGrid" Width="595" Height="842">
                                 <Image x:Name="PageImage" Stretch="Fill"
                                        RenderOptions.BitmapScalingMode="HighQuality"/>
+                                <!-- Firme già apposte (sola lettura). -->
+                                <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False"/>
                                 <InkCanvas x:Name="Ink" Background="Transparent"
                                            EditingMode="None" IsHitTestVisible="False"
                                            StrokeCollected="Ink_StrokeCollected"/>
+                                <!-- Firma che si sta posizionando. -->
+                                <Canvas x:Name="PlacementCanvas" Visibility="Collapsed" Background="Transparent"/>
                             </Grid>
                         </Border>
                     </Viewbox>

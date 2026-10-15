@@ -2,12 +2,19 @@ using System.Text.Json.Serialization;
 
 namespace IntercalarioDigitale.Core.Workflow;
 
+/// <summary>
+/// Gli ultimi due ruoli appartengono alla linea di vertice: per ogni livello decisionale (C4…C1)
+/// ci sono un Capo Sezione, un Capo Ufficio e l'Autorità di vertice.
+/// I valori numerici sono salvati nei file: non vanno cambiati.
+/// </summary>
 public enum Role
 {
     CapoSezione = 1,
     CapoUfficio = 2,
     CapoReparto = 3,
-    AutoritaDiVertice = 4
+    AutoritaDiVertice = 4,
+    CapoSezioneDiVertice = 5,
+    CapoUfficioDiVertice = 6
 }
 
 public enum PracticeStatus
@@ -44,8 +51,13 @@ public static class WorkflowText
         Role.CapoUfficio => "Capo Ufficio",
         Role.CapoReparto => "Capo Reparto",
         Role.AutoritaDiVertice => "Autorità di vertice",
+        Role.CapoSezioneDiVertice => "Capo Sezione di vertice",
+        Role.CapoUfficioDiVertice => "Capo Ufficio di vertice",
         _ => role.ToString()
     };
+
+    /// <summary>Livello decisionale: 0 = si ferma al Reparto, poi C4 (il meno elevato) … C1 (il più elevato).</summary>
+    public static string LevelName(int level) => level is >= 1 and <= 4 ? "C" + level : "Reparto";
 
     public static string DisplayName(this PracticeStatus status) => status switch
     {
@@ -86,11 +98,23 @@ public sealed class WorkflowUser
     /// <summary>Parigrado che sostituisce l'Ufficiale durante la licenza.</summary>
     public string? DelegateId { get; set; }
 
-    /// <summary>Solo Capi Ufficio: delega a inoltrare all'Autorità di vertice.</summary>
+    /// <summary>Non più usata: la linea gerarchica è fissa e non si salta nessun livello. Resta per leggere i vecchi file.</summary>
     public bool CanForwardToVertice { get; set; }
 
+    /// <summary>Firma (PNG) preimpostata dell'Ufficiale, relativa alla cartella dell'archivio (per esempio <c>firme/rossi.png</c>).</summary>
+    public string? SignatureFile { get; set; }
+
+    /// <summary>Superiore diretto lungo la linea di Reparto (Sezione → Ufficio → Reparto); vuoto per il Capo Reparto e per il vertice.</summary>
+    public string? SuperiorId { get; set; }
+
+    /// <summary>Solo linea di vertice: 4 = C4 (meno elevato) … 1 = C1 (più elevato). Per gli altri è 0.</summary>
+    public int Level { get; set; }
+
     [JsonIgnore]
-    public string Label => $"{Name} · {this.Role.DisplayName()}";
+    public string RoleName => Level > 0 ? $"{Role.DisplayName()} C{Level}" : Role.DisplayName();
+
+    [JsonIgnore]
+    public string Label => $"{Name} · {RoleName}";
 
     [JsonIgnore]
     public string Signature => $"{Name} ({ShortUnit})";
@@ -109,11 +133,30 @@ public sealed class Department
     public string SectionHeadId { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Dove sta la firma sul documento. Le misure sono frazioni della pagina (0…1), così valgono con qualunque zoom:
+/// <c>X</c> e <c>Y</c> sono l'angolo in alto a sinistra, <c>Width</c> la larghezza rispetto alla pagina.
+/// </summary>
+public sealed class SignaturePlacement
+{
+    public string DocumentId { get; set; } = string.Empty;
+    public int PageIndex { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; }
+}
+
 public sealed class ValidationStamp
 {
     public ValidationKind Kind { get; set; }
     public string UserId { get; set; } = string.Empty;
     public DateTimeOffset At { get; set; }
+
+    /// <summary>Firma (PNG) apposta insieme al timbro, copiata nell'intercalario: percorso relativo, per esempio <c>firme/xxx.png</c>.</summary>
+    public string? SignatureFile { get; set; }
+
+    /// <summary>Posizione della firma sul documento (vuota se il timbro è senza firma).</summary>
+    public SignaturePlacement? Placement { get; set; }
 }
 
 public sealed class Practice
@@ -124,7 +167,25 @@ public sealed class Practice
     public string? FromId { get; set; }
     public PracticeStatus Status { get; set; } = PracticeStatus.InLavorazione;
     public List<ValidationStamp> Validations { get; set; } = [];
+
+    /// <summary>Livello decisionale scelto da chi carica la pratica: 0 = si ferma al Reparto, 4 = C4 … 1 = C1.</summary>
+    public int DecisionLevel { get; set; }
+
+    /// <summary>Percorso di salita fissato alla creazione: gli ID degli utenti nell'ordine in cui l'appunto li attraversa.</summary>
+    public List<string> Route { get; set; } = [];
+
+    /// <summary>Posizione nel percorso di chi ha (o dovrebbe avere) l'appunto.</summary>
+    public int RouteIndex { get; set; }
 }
+
+public enum RouteStepState
+{
+    Done,
+    Current,
+    Upcoming
+}
+
+public sealed record RouteStep(WorkflowUser User, RouteStepState State, string Stage);
 
 public sealed class MovementLogEntry
 {
@@ -134,6 +195,11 @@ public sealed class MovementLogEntry
 
 public sealed class WorkflowState
 {
+    /// <summary>Versione del formato: 2 = linea gerarchica fissa e livelli di vertice.</summary>
+    public const int CurrentVersion = 2;
+
+    public int SchemaVersion { get; set; } = CurrentVersion;
+
     public List<WorkflowUser> Users { get; set; } = [];
     public List<Department> Departments { get; set; } = [];
     public List<Practice> Practices { get; set; } = [];
