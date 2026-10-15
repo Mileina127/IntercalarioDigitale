@@ -55,6 +55,7 @@ public partial class ViewerWindow : Window
         LoadPanes();
         BuildSuggestions();
         RefreshValidations();
+        RefreshRoute();
         UpdateScopeText();
         AddBubble(SimulatedAssistant.Greeting(AttachmentPane.CurrentTitle ?? _practice.Name), fromUser: false);
     }
@@ -68,6 +69,8 @@ public partial class ViewerWindow : Window
         var canReplace = _library.CanReplace(_practice.Id, _user.Id);
         CoverPane.CanReplace = canReplace;
         AttachmentPane.CanReplace = canReplace;
+
+        RefreshOverlays();
 
         CoverPane.RailOnRight = false;
         CoverPane.LoadDocuments(
@@ -88,6 +91,23 @@ public partial class ViewerWindow : Window
             ToPaneDocuments(attachments),
             LoadAnnotations,
             selectAttachmentId);
+    }
+
+    /// <summary>Le firme già apposte (copiate nell'intercalario) si vedono sopra le pagine dei documenti.</summary>
+    private void RefreshOverlays()
+    {
+        var overlays = new List<PaneOverlay>();
+        foreach (var stamp in _practice.Validations)
+        {
+            var path = _library.GetStampSignaturePath(_practice.Id, stamp);
+            if (path is not null && stamp.Placement is { } place)
+            {
+                overlays.Add(new PaneOverlay(place.DocumentId, place.PageIndex, place.X, place.Y, place.Width, path));
+            }
+        }
+
+        CoverPane.SetOverlays(overlays);
+        AttachmentPane.SetOverlays(overlays);
     }
 
     private IReadOnlyList<PageAnnotation> LoadAnnotations(string documentId) =>
@@ -379,12 +399,17 @@ public partial class ViewerWindow : Window
     private void ValToggle_Click(object sender, RoutedEventArgs e) =>
         ShowPanel(ValToggle.IsChecked == true ? "val" : null);
 
+    private void RouteToggle_Click(object sender, RoutedEventArgs e) =>
+        ShowPanel(RouteToggle.IsChecked == true ? "route" : null);
+
     private void ShowPanel(string? panel)
     {
         AiToggle.IsChecked = panel == "ai";
         ValToggle.IsChecked = panel == "val";
+        RouteToggle.IsChecked = panel == "route";
         AiPanel.Visibility = panel == "ai" ? Visibility.Visible : Visibility.Collapsed;
         ValPanel.Visibility = panel == "val" ? Visibility.Visible : Visibility.Collapsed;
+        RoutePanel.Visibility = panel == "route" ? Visibility.Visible : Visibility.Collapsed;
         SidePanel.Visibility = panel is null ? Visibility.Collapsed : Visibility.Visible;
 
         if (panel == "ai")
@@ -535,7 +560,7 @@ public partial class ViewerWindow : Window
                 Content = kind == ValidationKind.Visto ? "Visto" : kind.Title(),
                 Margin = new Thickness(0, 0, 6, 6),
                 IsEnabled = allowed,
-                ToolTip = allowed ? null : $"Non previsto per {_user.Role.DisplayName()}"
+                ToolTip = allowed ? null : $"Non previsto per {_user.RoleName}"
             };
             button.Click += (_, _) => Stamp(chosen);
             StampPanel.Children.Add(button);
@@ -560,19 +585,128 @@ public partial class ViewerWindow : Window
         }
     }
 
+    private bool _placingSignature;
+
     private void Stamp(ValidationKind kind)
+    {
+        if (_placingSignature)
+        {
+            StatusText.Text = "Conferma o annulla prima la firma che stai posizionando.";
+            return;
+        }
+
+        var signature = WorkflowEngine.CanHaveSignature(_user) ? _library.GetSignaturePath(_user.Id) : null;
+        if (signature is null)
+        {
+            Apply(kind, null);
+            if (WorkflowEngine.CanHaveSignature(_user))
+            {
+                StatusText.Text += " (senza firma: caricala da «Firma…» nella schermata principale)";
+            }
+
+            return;
+        }
+
+        // Con la firma: la si trascina sulla pagina aperta della contropagina e poi si conferma.
+        _placingSignature = true;
+        var started = CoverPane.BeginPlacement(signature, placement =>
+        {
+            _placingSignature = false;
+            if (placement is null)
+            {
+                StatusText.Text = "Apposizione annullata.";
+                return;
+            }
+
+            Apply(kind, placement);
+        });
+
+        if (started)
+        {
+            StatusText.Text = $"Trascina la firma sulla contropagina, poi premi Conferma per apporre «{kind.Title()}».";
+        }
+        else
+        {
+            _placingSignature = false;
+            StatusText.Text = "Apri una pagina della contropagina per apporre la firma.";
+        }
+    }
+
+    private void Apply(ValidationKind kind, SignaturePlacement? placement)
     {
         try
         {
-            _library.Engine.AddValidation(_practice.Id, _user.Id, kind);
-            _library.Save();
+            _library.ApplyValidation(_practice.Id, _user.Id, kind, placement);
             RefreshValidations();
+            RefreshOverlays();
             StatusText.Text = "Validazione apposta: " + kind.Title();
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             StatusText.Text = ex.Message;
         }
+    }
+
+    // ---------- percorso ----------
+
+    private void RefreshRoute()
+    {
+        var steps = _library.Engine.GetRoute(_practice);
+        var level = WorkflowText.LevelName(_practice.DecisionLevel);
+        var current = steps.FirstOrDefault(s => s.State == RouteStepState.Current);
+        RouteSummary.Text = $"Livello decisionale: {level}. " +
+            (current is null ? string.Empty : $"Ora in mano a {current.User.Name}.");
+
+        RouteList.Children.Clear();
+        string? stage = null;
+        foreach (var step in steps)
+        {
+            if (step.Stage != stage)
+            {
+                stage = step.Stage;
+                RouteList.Children.Add(new TextBlock
+                {
+                    Text = stage == "Reparto" ? "REPARTO" : $"LIVELLO {stage}",
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = (Brush)FindResource("TextMuted"),
+                    Margin = new Thickness(0, RouteList.Children.Count == 0 ? 0 : 12, 0, 4)
+                });
+            }
+
+            RouteList.Children.Add(BuildRouteRow(step));
+        }
+    }
+
+    private UIElement BuildRouteRow(RouteStep step)
+    {
+        var (glyph, brush) = step.State switch
+        {
+            RouteStepState.Done => ("✓", (Brush)new SolidColorBrush(Color.FromRgb(0x17, 0x79, 0x4A))),
+            RouteStepState.Current => ("●", (Brush)FindResource("Accent")),
+            _ => ("○", (Brush)FindResource("TextMuted"))
+        };
+
+        var text = new StackPanel();
+        text.Children.Add(new TextBlock
+        {
+            Text = step.User.Name,
+            FontWeight = step.State == RouteStepState.Current ? FontWeights.SemiBold : FontWeights.Normal
+        });
+        text.Children.Add(new TextBlock
+        {
+            Text = step.User.RoleName,
+            FontSize = 12,
+            Foreground = (Brush)FindResource("TextMuted")
+        });
+
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.Children.Add(new TextBlock { Text = glyph, Foreground = brush, FontSize = 14, VerticalAlignment = VerticalAlignment.Top });
+        Grid.SetColumn(text, 1);
+        row.Children.Add(text);
+        return row;
     }
 
     private static (Brush Foreground, Brush Background, string Glyph) Palette(ValidationKind kind) => kind switch
@@ -634,6 +768,26 @@ public partial class ViewerWindow : Window
             Foreground = (Brush)FindResource("TextMuted")
         });
         text.Children.Add(badge);
+
+        var signaturePath = _library.GetStampSignaturePath(_practice.Id, stamp);
+        if (signaturePath is not null)
+        {
+            try
+            {
+                text.Children.Add(new Image
+                {
+                    Source = ImageLoader.Load(signaturePath),
+                    Height = 36,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 6, 0, 0),
+                    ToolTip = "Firma apposta"
+                });
+            }
+            catch (Exception ex) when (ex is IOException or NotSupportedException)
+            {
+                // la miniatura è solo un aiuto: senza, il timbro resta valido
+            }
+        }
 
         var layout = new Grid();
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });

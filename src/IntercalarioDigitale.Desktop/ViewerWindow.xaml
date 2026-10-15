@@ -132,6 +132,22 @@
                                    Text="Le risposte sono simulate e lette dai dati di questa pratica: nessun modello è collegato."/>
                     </Grid>
 
+                    <!-- Percorso -->
+                    <Grid x:Name="RoutePanel" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="PERCORSO" FontWeight="SemiBold" FontSize="14"
+                                   Margin="16,12,16,0"/>
+                        <TextBlock x:Name="RouteSummary" Grid.Row="1" Margin="16,4,16,0" FontSize="12"
+                                   TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
+                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                            <StackPanel x:Name="RouteList" Margin="16,0,16,12"/>
+                        </ScrollViewer>
+                    </Grid>
+
                     <!-- Validazioni -->
                     <Grid x:Name="ValPanel" Visibility="Collapsed">
                         <Grid.RowDefinitions>
@@ -159,6 +175,7 @@
                           Click="AnnotationToggle_Click"/>
             <ToggleButton x:Name="AiToggle" Content="ANALISI IA" Margin="0,0,10,0" Click="AiToggle_Click"/>
             <ToggleButton x:Name="ValToggle" Content="VALIDAZIONE" Margin="0,0,10,0" Click="ValToggle_Click"/>
+            <ToggleButton x:Name="RouteToggle" Content="PERCORSO" Margin="0,0,10,0" Click="RouteToggle_Click"/>
             <Button x:Name="ScopeButton" Content="•••" Padding="12,8" ToolTip="Ambito dell'analisi IA"
                     Click="ScopeButton_Click"/>
             <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="18,0,0,0" FontSize="12"

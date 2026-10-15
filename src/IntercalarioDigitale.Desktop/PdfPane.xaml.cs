@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using IntercalarioDigitale.Core;
+using IntercalarioDigitale.Core.Workflow;
 using IntercalarioDigitale.Desktop.Services;
 
 namespace IntercalarioDigitale.Desktop;
@@ -21,6 +22,9 @@ public sealed record PaneDocument(
     bool IsAnnex,
     string? OriginalFullPath = null,
     string? Note = null);
+
+/// <summary>Una firma già apposta: dove sta (frazioni della pagina) e il file PNG.</summary>
+public sealed record PaneOverlay(string DocumentId, int PageIndex, double X, double Y, double Width, string ImagePath);
 
 public sealed class DocumentEventArgs : EventArgs
 {
@@ -79,6 +83,18 @@ public partial class PdfPane : UserControl
     private double _logicalHeight = 842;
     private bool _updatingRail;
     private bool _annotating;
+    private IReadOnlyList<PaneOverlay> _overlays = [];
+    private readonly Dictionary<string, ImageSource> _overlayImages = new();
+
+    // posizionamento della firma
+    private Border? _placementBox;
+    private double _placementAspect = 0.3;
+    private double _placeX;
+    private double _placeY;
+    private double _placeWidth;
+    private Point _dragOffset;
+    private bool _dragging;
+    private Action<SignaturePlacement?>? _placementDone;
     private (string Doc, int Page, int Width) _renderedKey = (string.Empty, -1, -1);
 
     public PdfPane()
@@ -167,6 +183,196 @@ public partial class PdfPane : UserControl
         ShowDocument(target);
     }
 
+    /// <summary>Firme già apposte sui documenti del riquadro: si disegnano sopra la pagina.</summary>
+    public void SetOverlays(IReadOnlyList<PaneOverlay> overlays)
+    {
+        _overlays = overlays;
+        DrawOverlays();
+    }
+
+    private void DrawOverlays()
+    {
+        OverlayCanvas.Children.Clear();
+        if (_current is null || _current.ShowingOriginal || _pageIndex < 0)
+        {
+            return;
+        }
+
+        foreach (var overlay in _overlays.Where(o => o.DocumentId == _current.Info.Id && o.PageIndex == _pageIndex))
+        {
+            try
+            {
+                if (!_overlayImages.TryGetValue(overlay.ImagePath, out var source))
+                {
+                    source = ImageLoader.Load(overlay.ImagePath);
+                    _overlayImages[overlay.ImagePath] = source;
+                }
+
+                var image = new Image { Source = source, Width = overlay.Width * LogicalWidth, Stretch = Stretch.Uniform };
+                Canvas.SetLeft(image, overlay.X * LogicalWidth);
+                Canvas.SetTop(image, overlay.Y * _logicalHeight);
+                OverlayCanvas.Children.Add(image);
+            }
+            catch (Exception ex) when (ex is IOException or NotSupportedException or InvalidOperationException)
+            {
+                // un PNG illeggibile non deve impedire di leggere il documento
+            }
+        }
+    }
+
+    // ---------- posizionamento della firma ----------
+
+    /// <summary>
+    /// Mostra la firma sulla pagina aperta perché l'Ufficiale la trascini dove vuole (la rotella la ingrandisce o la riduce).
+    /// Alla conferma restituisce dove sta, all'annullamento <c>null</c>. Non funziona sull'originale conservato.
+    /// </summary>
+    public bool BeginPlacement(string imagePath, Action<SignaturePlacement?> completed)
+    {
+        if (_current is null || _current.ShowingOriginal || ActivePdf is null || _pageIndex < 0 || _placementBox is not null)
+        {
+            return false;
+        }
+
+        var bitmap = ImageLoader.Load(imagePath);
+        _placementAspect = bitmap.PixelWidth == 0 ? 0.3 : bitmap.PixelHeight / (double)bitmap.PixelWidth;
+        _placeWidth = LogicalWidth * 0.30;
+        _placeX = LogicalWidth * 0.60;
+        _placeY = _logicalHeight * 0.78;
+        ClampPlacement();
+
+        _placementBox = new Border
+        {
+            Child = new Image { Source = bitmap, Width = _placeWidth, Stretch = Stretch.Uniform },
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x0A, 0x5F, 0xB4)),
+            BorderThickness = new Thickness(1),
+            Background = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)),
+            Cursor = Cursors.SizeAll
+        };
+        _placementBox.MouseLeftButtonDown += Placement_MouseDown;
+        _placementBox.MouseMove += Placement_MouseMove;
+        _placementBox.MouseLeftButtonUp += Placement_MouseUp;
+        _placementBox.MouseWheel += Placement_MouseWheel;
+
+        PlacementCanvas.Children.Clear();
+        PlacementCanvas.Children.Add(_placementBox);
+        MovePlacementBox();
+        PlacementCanvas.Visibility = Visibility.Visible;
+
+        _placementDone = completed;
+        PlacementBar.Visibility = Visibility.Visible;
+        ToolsBar.Visibility = Visibility.Collapsed;
+        Rail.IsEnabled = false;
+        AddButton.IsEnabled = false;
+        ApplyInkMode();
+        Focus();
+        return true;
+    }
+
+    private void ClampPlacement()
+    {
+        _placeWidth = Math.Clamp(_placeWidth, LogicalWidth * 0.08, LogicalWidth * 0.9);
+        var height = _placeWidth * _placementAspect;
+        _placeX = Math.Clamp(_placeX, 0, Math.Max(0, LogicalWidth - _placeWidth));
+        _placeY = Math.Clamp(_placeY, 0, Math.Max(0, _logicalHeight - height));
+    }
+
+    private void MovePlacementBox()
+    {
+        if (_placementBox is null)
+        {
+            return;
+        }
+
+        if (_placementBox.Child is Image image)
+        {
+            image.Width = _placeWidth;
+        }
+
+        Canvas.SetLeft(_placementBox, _placeX);
+        Canvas.SetTop(_placementBox, _placeY);
+    }
+
+    private void Placement_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_placementBox is null)
+        {
+            return;
+        }
+
+        _dragging = true;
+        _dragOffset = e.GetPosition(_placementBox);
+        _placementBox.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void Placement_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_dragging || _placementBox is null)
+        {
+            return;
+        }
+
+        var point = e.GetPosition(PlacementCanvas);
+        _placeX = point.X - _dragOffset.X;
+        _placeY = point.Y - _dragOffset.Y;
+        ClampPlacement();
+        MovePlacementBox();
+    }
+
+    private void Placement_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        _dragging = false;
+        _placementBox?.ReleaseMouseCapture();
+    }
+
+    private void Placement_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        _placeWidth *= e.Delta > 0 ? 1.08 : 1 / 1.08;
+        ClampPlacement();
+        MovePlacementBox();
+        e.Handled = true;
+    }
+
+    private void FinishPlacement(bool confirmed)
+    {
+        if (_placementBox is null || _current is null)
+        {
+            return;
+        }
+
+        SignaturePlacement? result = null;
+        if (confirmed)
+        {
+            result = new SignaturePlacement
+            {
+                DocumentId = _current.Info.Id,
+                PageIndex = _pageIndex,
+                X = _placeX / LogicalWidth,
+                Y = _placeY / _logicalHeight,
+                Width = _placeWidth / LogicalWidth
+            };
+        }
+
+        _placementBox.ReleaseMouseCapture();
+        _placementBox = null;
+        _dragging = false;
+        PlacementCanvas.Children.Clear();
+        PlacementCanvas.Visibility = Visibility.Collapsed;
+        PlacementBar.Visibility = Visibility.Collapsed;
+        ToolsBar.Visibility = Visibility.Visible;
+        Rail.IsEnabled = true;
+        AddButton.IsEnabled = true;
+        ApplyInkMode();
+
+        var done = _placementDone;
+        _placementDone = null;
+        done?.Invoke(result);
+    }
+
+    private void PlacementConfirm_Click(object sender, RoutedEventArgs e) => FinishPlacement(true);
+
+    private void PlacementCancel_Click(object sender, RoutedEventArgs e) => FinishPlacement(false);
+
     public void SetAnnotating(bool enabled)
     {
         _annotating = enabled;
@@ -176,7 +382,7 @@ public partial class PdfPane : UserControl
     /// <summary>La penna è attiva solo se richiesta e se non si sta guardando l'originale (sola lettura).</summary>
     private void ApplyInkMode()
     {
-        var enabled = _annotating && _current is { ShowingOriginal: false };
+        var enabled = _annotating && _placementBox is null && _current is { ShowingOriginal: false };
         Ink.EditingMode = enabled ? InkCanvasEditingMode.Ink : InkCanvasEditingMode.None;
         Ink.IsHitTestVisible = enabled;
     }
@@ -254,6 +460,7 @@ public partial class PdfPane : UserControl
         _pageIndex = -1;
         SubText.Text = message;
         NoteText.Visibility = Visibility.Collapsed;
+        OverlayCanvas.Children.Clear();
         DownloadButton.IsEnabled = false;
         ReplaceButton.IsEnabled = false;
         OriginalButton.Visibility = Visibility.Collapsed;
@@ -272,6 +479,7 @@ public partial class PdfPane : UserControl
     {
         _current = state;
         _pageIndex = -1;
+        OverlayCanvas.Children.Clear();
 
         _updatingRail = true;
         Rail.SelectedIndex = _docs.IndexOf(state);
@@ -434,6 +642,7 @@ public partial class PdfPane : UserControl
         }
 
         UpdatePager();
+        DrawOverlays();
         _renderedKey = (string.Empty, -1, -1);
         RenderCurrentPage();
     }
@@ -554,7 +763,12 @@ public partial class PdfPane : UserControl
 
     private void Pane_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.PageDown)
+        if (_placementBox is not null && (e.Key == Key.Enter || e.Key == Key.Escape))
+        {
+            FinishPlacement(e.Key == Key.Enter);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.PageDown)
         {
             ShowPage(_pageIndex + 1);
             e.Handled = true;

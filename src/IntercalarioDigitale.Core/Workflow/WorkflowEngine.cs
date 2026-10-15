@@ -1,9 +1,11 @@
 namespace IntercalarioDigitale.Core.Workflow;
 
 /// <summary>
-/// Regole di flusso degli appunti (vedi "Struttura funzionale dell'applicativo"):
-/// via gerarchica Sezione → Ufficio → Reparto → Vertice, delega al Vertice per i Capi Ufficio,
-/// licenza con sostituto parigrado, tramite telematico riservato ai Capi Reparto.
+/// Regole di flusso degli appunti (vedi "Struttura funzionale dell'applicativo").
+/// La via gerarchica è fissa e si decide alla creazione della pratica:
+/// Capo Sezione → Capo Ufficio → Capo Reparto, poi, per ogni livello decisionale da C4 (il meno elevato)
+/// fino a quello scelto, Capo Sezione di vertice → Capo Ufficio di vertice → Autorità di vertice.
+/// Restano la licenza con sostituto parigrado e il tramite telematico riservato ai Capi Reparto.
 /// </summary>
 public sealed class WorkflowEngine
 {
@@ -28,25 +30,105 @@ public sealed class WorkflowEngine
         _state.Practices.FirstOrDefault(p => p.Id == practiceId)
         ?? throw new KeyNotFoundException($"Pratica non trovata: {practiceId}");
 
-    // ---------- destinatari ----------
+    // ---------- via gerarchica ----------
 
-    public IReadOnlyList<ForwardTarget> GetForwardTargets(string actorId)
+    public const int LowestLevel = 4;
+    public const int HighestLevel = 1;
+
+    private static bool IsRepartoLine(Role role) => role is Role.CapoSezione or Role.CapoUfficio or Role.CapoReparto;
+
+    private WorkflowUser? Superior(WorkflowUser user) =>
+        user.SuperiorId is null ? null : _state.Users.FirstOrDefault(u => u.Id == user.SuperiorId);
+
+    private WorkflowUser FindVertice(Role role, int level) =>
+        _state.Users.FirstOrDefault(u => u.Role == role && u.Level == level)
+        ?? throw new InvalidOperationException($"Nella linea di vertice manca {role.DisplayName()} C{level}.");
+
+    /// <summary>
+    /// Percorso di salita di un appunto che parte da <paramref name="startUserId"/> (di norma il Capo Sezione):
+    /// la linea di Reparto fino al Capo Reparto, poi le terne di vertice da C4 fino a <paramref name="decisionLevel"/>.
+    /// Con livello 0 l'appunto si ferma al Capo Reparto.
+    /// </summary>
+    public List<string> BuildRoute(string startUserId, int decisionLevel)
     {
-        var actor = GetUser(actorId);
-        var targets = new List<ForwardTarget>();
-
-        var nextLevel = (int)actor.Role + 1;
-        foreach (var user in _state.Users.Where(u => (int)u.Role == nextLevel && u.Id != actor.Id))
+        if (decisionLevel is < 0 or > LowestLevel)
         {
-            targets.Add(new ForwardTarget(TransferMode.Forward, user.Id));
+            throw new ArgumentOutOfRangeException(nameof(decisionLevel), "Il livello decisionale va da 1 (C1) a 4 (C4); 0 = si ferma al Reparto.");
         }
 
-        if (actor.Role == Role.CapoUfficio && actor.CanForwardToVertice)
+        var start = GetUser(startUserId);
+        if (!IsRepartoLine(start.Role))
         {
-            foreach (var user in _state.Users.Where(u => u.Role == Role.AutoritaDiVertice))
+            throw new InvalidOperationException("Un appunto parte dalla linea di Reparto (Capo Sezione, Capo Ufficio o Capo Reparto).");
+        }
+
+        var route = new List<string>();
+        var current = start;
+        while (current is not null && !route.Contains(current.Id))
+        {
+            route.Add(current.Id);
+            if (current.Role == Role.CapoReparto)
             {
-                targets.Add(new ForwardTarget(TransferMode.Forward, user.Id));
+                break;
             }
+
+            current = Superior(current);
+        }
+
+        for (var level = LowestLevel; decisionLevel > 0 && level >= decisionLevel; level--)
+        {
+            route.Add(FindVertice(Role.CapoSezioneDiVertice, level).Id);
+            route.Add(FindVertice(Role.CapoUfficioDiVertice, level).Id);
+            route.Add(FindVertice(Role.AutoritaDiVertice, level).Id);
+        }
+
+        return route;
+    }
+
+    /// <summary>I vecchi appunti (senza percorso) lo ricevono la prima volta che servono.</summary>
+    private void EnsureRoute(Practice practice)
+    {
+        if (practice.Route.Count > 0)
+        {
+            return;
+        }
+
+        var holder = GetUser(practice.HolderId);
+        practice.Route = IsRepartoLine(holder.Role)
+            ? BuildRoute(holder.Id, practice.DecisionLevel)
+            : [holder.Id];
+        practice.RouteIndex = 0;
+    }
+
+    /// <summary>Le tappe del percorso, con quelle già fatte, quella attuale e quelle da fare.</summary>
+    public IReadOnlyList<RouteStep> GetRoute(Practice practice)
+    {
+        EnsureRoute(practice);
+        var steps = new List<RouteStep>();
+        for (var i = 0; i < practice.Route.Count; i++)
+        {
+            var user = GetUser(practice.Route[i]);
+            var state = i < practice.RouteIndex ? RouteStepState.Done
+                : i == practice.RouteIndex ? RouteStepState.Current
+                : RouteStepState.Upcoming;
+            steps.Add(new RouteStep(user, state, WorkflowText.LevelName(user.Level)));
+        }
+
+        return steps;
+    }
+
+    // ---------- destinatari ----------
+
+    public IReadOnlyList<ForwardTarget> GetForwardTargets(Practice practice, string actorId)
+    {
+        var actor = GetUser(actorId);
+        EnsureRoute(practice);
+        var targets = new List<ForwardTarget>();
+
+        var next = practice.RouteIndex + 1;
+        if (next < practice.Route.Count)
+        {
+            targets.Add(new ForwardTarget(TransferMode.Forward, practice.Route[next]));
         }
 
         if (actor.Role == Role.CapoReparto)
@@ -70,7 +152,7 @@ public sealed class WorkflowEngine
             return $"{departmentName}: tramite telematico a {recipient.Name} ({recipient.Role.DisplayName()})";
         }
 
-        return $"{recipient.Name} · {recipient.Role.DisplayName()}, {recipient.Unit}";
+        return $"{recipient.Name} · {recipient.RoleName}, {recipient.Unit}";
     }
 
     public string? DescribeLeave(string userId)
@@ -90,7 +172,7 @@ public sealed class WorkflowEngine
     // ---------- spostamenti ----------
 
     public bool CanForward(Practice practice, string actorId) =>
-        practice.HolderId == actorId && GetForwardTargets(actorId).Count > 0;
+        practice.HolderId == actorId && GetForwardTargets(practice, actorId).Count > 0;
 
     public bool CanReturn(Practice practice, string actorId) =>
         practice.HolderId == actorId && practice.FromId is not null;
@@ -101,12 +183,14 @@ public sealed class WorkflowEngine
         var actor = GetUser(actorId);
         EnsureHolder(practice, actor);
 
-        if (target.Mode == TransferMode.Return || !GetForwardTargets(actorId).Contains(target))
+        if (target.Mode == TransferMode.Return || !GetForwardTargets(practice, actorId).Contains(target))
         {
-            throw new InvalidOperationException("Destinatario non consentito per questo ruolo.");
+            throw new InvalidOperationException("Destinatario non consentito: la via gerarchica è fissa.");
         }
 
-        return Deliver(practice, actor, GetUser(target.RecipientId), target.Mode, note);
+        var result = Deliver(practice, actor, GetUser(target.RecipientId), target.Mode, note);
+        AdvanceRoute(practice, target);
+        return result;
     }
 
     public TransferResult Return(string practiceId, string actorId, string? note = null)
@@ -120,7 +204,46 @@ public sealed class WorkflowEngine
             throw new InvalidOperationException("Nessun mittente precedente a cui restituire l'appunto.");
         }
 
-        return Deliver(practice, actor, GetUser(practice.FromId), TransferMode.Return, note);
+        var recipient = GetUser(practice.FromId);
+        var result = Deliver(practice, actor, recipient, TransferMode.Return, note);
+
+        // Si torna alla tappa di chi aveva mandato l'appunto (o di chi lo sostituiva).
+        EnsureRoute(practice);
+        var back = practice.RouteIndex > 0 ? practice.Route.LastIndexOf(recipient.Id, practice.RouteIndex - 1) : -1;
+        practice.RouteIndex = back >= 0 ? back : Math.Max(0, practice.RouteIndex - 1);
+        return result;
+    }
+
+    private void AdvanceRoute(Practice practice, ForwardTarget target)
+    {
+        EnsureRoute(practice);
+        var here = practice.RouteIndex;
+
+        if (target.Mode == TransferMode.Tramite)
+        {
+            // L'appunto attraversa la linea di Reparto dell'altra articolazione e poi riprende la salita al vertice.
+            var chain = new List<string>();
+            var current = GetUser(target.RecipientId);
+            while (current is not null && !chain.Contains(current.Id))
+            {
+                chain.Add(current.Id);
+                if (current.Role == Role.CapoReparto)
+                {
+                    break;
+                }
+
+                current = Superior(current);
+            }
+
+            var alreadyThere = practice.Route.Count > here + 1 && practice.Route[here + 1] == chain[0];
+            if (!alreadyThere)
+            {
+                var tail = practice.Route.Skip(here + 1).ToList();
+                practice.Route = practice.Route.Take(here + 1).Concat(chain).Concat(tail).ToList();
+            }
+        }
+
+        practice.RouteIndex = here + 1;
     }
 
     private TransferResult Deliver(Practice practice, WorkflowUser actor, WorkflowUser recipient, TransferMode mode, string? note)
@@ -192,7 +315,7 @@ public sealed class WorkflowEngine
         if (!string.IsNullOrEmpty(delegateId))
         {
             var delegateUser = GetUser(delegateId);
-            if (delegateUser.Role != user.Role || delegateUser.Id == user.Id)
+            if (delegateUser.Role != user.Role || delegateUser.Level != user.Level || delegateUser.Id == user.Id)
             {
                 throw new InvalidOperationException("Il sostituto deve essere un parigrado diverso dall'Ufficiale in licenza.");
             }
@@ -202,25 +325,22 @@ public sealed class WorkflowEngine
         user.DelegateId = string.IsNullOrEmpty(delegateId) ? null : delegateId;
     }
 
-    public void SetViceDelegation(string userId, bool enabled)
-    {
-        var user = GetUser(userId);
-        if (user.Role != Role.CapoUfficio)
-        {
-            throw new InvalidOperationException("La delega di inoltro al Vertice riguarda solo i Capi Ufficio.");
-        }
-
-        user.CanForwardToVertice = enabled;
-    }
-
     // ---------- validazioni ----------
 
     public bool CanStamp(WorkflowUser user, ValidationKind kind) => kind switch
     {
-        ValidationKind.Concordato => user.Role is Role.CapoSezione or Role.CapoUfficio,
+        ValidationKind.Concordato => user.Role is Role.CapoSezione or Role.CapoUfficio
+            or Role.CapoSezioneDiVertice or Role.CapoUfficioDiVertice,
         ValidationKind.Approvato => user.Role is Role.CapoReparto or Role.AutoritaDiVertice,
         _ => true
     };
+
+    /// <summary>
+    /// Può avere una firma PNG preimpostata chi è Capo Ufficio, Capo Reparto o Autorità di vertice.
+    /// Non l'hanno i Capi Sezione né il Capo Sezione e il Capo Ufficio di vertice.
+    /// </summary>
+    public static bool CanHaveSignature(WorkflowUser user) =>
+        user.Role is Role.CapoUfficio or Role.CapoReparto or Role.AutoritaDiVertice;
 
     public ValidationStamp AddValidation(string practiceId, string actorId, ValidationKind kind, DateTimeOffset? at = null)
     {

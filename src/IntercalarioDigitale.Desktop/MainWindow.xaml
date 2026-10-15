@@ -47,8 +47,9 @@
                               SelectionChanged="DelegateBox_SelectionChanged"/>
                 </StackPanel>
 
-                <CheckBox x:Name="ViceBox" Content="Delega di inoltro al Vertice" VerticalAlignment="Center"
-                          Visibility="Collapsed" Click="ViceBox_Click"/>
+                <Button x:Name="SignatureButton" Content="Firma…" VerticalAlignment="Center"
+                        Visibility="Collapsed" Click="SignatureButton_Click"
+                        ToolTip="Carica o cambia la firma (PNG) che viene apposta con Concordo, Approvo e Visto"/>
             </WrapPanel>
         </Border>
 
@@ -79,8 +80,9 @@
             <DataGrid.Columns>
                 <DataGridTextColumn Header="ID Pratica" Binding="{Binding Id}" Width="120"/>
                 <DataGridTextColumn Header="Nome Documento" Binding="{Binding Name}" Width="*"/>
+                <DataGridTextColumn Header="Livello" Binding="{Binding LevelText}" Width="80"/>
                 <DataGridTextColumn Header="Stato" Binding="{Binding StatusText}" Width="190"/>
-                <DataGridTextColumn Header="Assegnato a" Binding="{Binding HolderText}" Width="230"/>
+                <DataGridTextColumn Header="Assegnato a" Binding="{Binding HolderText}" Width="250"/>
                 <DataGridTemplateColumn Width="64">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>

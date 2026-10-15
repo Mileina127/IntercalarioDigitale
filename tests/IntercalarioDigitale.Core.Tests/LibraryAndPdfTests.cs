@@ -71,7 +71,7 @@ public sealed class LibraryAndPdfTests
         var library = new PracticeLibrary(root);
 
         Assert.Equal(5, library.State.Practices.Count);
-        Assert.Equal(7, library.State.Users.Count);
+        Assert.Equal(18, library.State.Users.Count);
         Assert.Equal(5, library.Engine.GetPractice("2.026_3").Validations.Count);
 
         var practice = library.State.Practices[2];

@@ -10,7 +10,7 @@ namespace IntercalarioDigitale.Desktop;
 
 public partial class MainWindow : Window
 {
-    public sealed record PracticeRow(string Id, string Name, string StatusText, string HolderText);
+    public sealed record PracticeRow(string Id, string Name, string LevelText, string StatusText, string HolderText);
 
     public sealed record DelegateChoice(string Id, string Label);
 
@@ -27,7 +27,7 @@ public partial class MainWindow : Window
 
         UserBox.ItemsSource = _library.State.Users;
         UserBox.DisplayMemberPath = "Label";
-        var start = _library.State.Users.FirstOrDefault(u => u.Id == "moretti") ?? _library.State.Users[0];
+        var start = _library.State.Users.FirstOrDefault(u => u.Id == "verdi") ?? _library.State.Users[0];
         _currentUserId = start.Id;
         UserBox.SelectedItem = start;
 
@@ -57,15 +57,19 @@ public partial class MainWindow : Window
         DelegatePanel.Visibility = user.OnLeave ? Visibility.Visible : Visibility.Collapsed;
 
         var choices = _library.State.Users
-            .Where(u => u.Role == user.Role && u.Id != user.Id)
+            .Where(u => u.Role == user.Role && u.Level == user.Level && u.Id != user.Id)
             .Select(u => new DelegateChoice(u.Id, u.Name))
             .ToList();
         choices.Insert(0, new DelegateChoice(string.Empty, "Nessuno"));
         DelegateBox.ItemsSource = choices;
         DelegateBox.SelectedValue = user.DelegateId ?? string.Empty;
 
-        ViceBox.Visibility = user.Role == Role.CapoUfficio ? Visibility.Visible : Visibility.Collapsed;
-        ViceBox.IsChecked = user.CanForwardToVertice;
+        SignatureButton.Visibility = WorkflowEngine.CanHaveSignature(user) ? Visibility.Visible : Visibility.Collapsed;
+        SignatureButton.Content = _library.GetSignaturePath(user.Id) is null ? "Carica firma…" : "Firma…";
+
+        var canCreate = user.Role == Role.CapoSezione;
+        NewButton.IsEnabled = canCreate;
+        NewButton.ToolTip = canCreate ? null : "Una nuova pratica parte dal Capo Sezione, che sceglie il livello decisionale";
         _updating = false;
     }
 
@@ -77,7 +81,7 @@ public partial class MainWindow : Window
             .Select(p =>
             {
                 var holder = Engine.GetUser(p.HolderId);
-                return new PracticeRow(p.Id, p.Name, p.Status.DisplayName(), $"{holder.Name} · {holder.Role.DisplayName()}");
+                return new PracticeRow(p.Id, p.Name, WorkflowText.LevelName(p.DecisionLevel), p.Status.DisplayName(), $"{holder.Name} · {holder.RoleName}");
             })
             .ToList();
 
@@ -157,23 +161,9 @@ public partial class MainWindow : Window
         RefreshAll();
     }
 
-    private void ViceBox_Click(object sender, RoutedEventArgs e)
+    private void SignatureButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_ready || _updating)
-        {
-            return;
-        }
-
-        try
-        {
-            Engine.SetViceDelegation(_currentUserId, ViceBox.IsChecked == true);
-            Persist();
-        }
-        catch (InvalidOperationException ex)
-        {
-            Dialogs.Error(this, ex.Message);
-        }
-
+        Dialogs.ManageSignature(this, _library, CurrentUser);
         RefreshAll();
     }
 
@@ -189,7 +179,7 @@ public partial class MainWindow : Window
 
     private void NewButton_Click(object sender, RoutedEventArgs e)
     {
-        var input = Dialogs.AskNewPractice(this);
+        var input = Dialogs.AskNewPractice(this, Engine, _currentUserId);
         if (input is null)
         {
             return;
@@ -197,7 +187,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var practice = _library.CreatePractice(input.Name, _currentUserId, input.CoverPath, input.AttachmentPath);
+            var practice = _library.CreatePractice(input.Name, _currentUserId, input.CoverPath, input.AttachmentPath, decisionLevel: input.DecisionLevel);
             RefreshAll();
             SelectRow(practice.Id);
         }
@@ -245,7 +235,7 @@ public partial class MainWindow : Window
             IsEnabled = mine && Engine.CanForward(practice, _currentUserId),
             ToolTip = !mine
                 ? "Disponibile solo per chi ha in carico l'appunto"
-                : Engine.CanForward(practice, _currentUserId) ? null : "Nessun livello superiore a cui inoltrare"
+                : Engine.CanForward(practice, _currentUserId) ? null : "Il percorso è concluso: non ci sono altri livelli"
         };
         forward.Click += (_, _) => Forward(practice);
 

@@ -7,7 +7,7 @@ using Microsoft.Win32;
 
 namespace IntercalarioDigitale.Desktop;
 
-public sealed record NewPracticeInput(string Name, string? CoverPath, string? AttachmentPath);
+public sealed record NewPracticeInput(string Name, string? CoverPath, string? AttachmentPath, int DecisionLevel);
 
 /// <summary>Finestre di dialogo semplici, costruite da codice.</summary>
 public static class Dialogs
@@ -70,7 +70,7 @@ public static class Dialogs
 
     public static ForwardTarget? PickForwardTarget(Window owner, WorkflowEngine engine, Practice practice, string actorId)
     {
-        var targets = engine.GetForwardTargets(actorId);
+        var targets = engine.GetForwardTargets(practice, actorId);
         var dialog = Create(owner, "Manda avanti", 540);
         var root = new StackPanel { Margin = new Thickness(22) };
 
@@ -95,7 +95,7 @@ public static class Dialogs
                 lastMode = target.Mode;
                 root.Children.Add(new TextBlock
                 {
-                    Text = target.Mode == TransferMode.Tramite ? "TRAMITE TELEMATICO (SOLO CAPI REPARTO)" : "VIA GERARCHICA",
+                    Text = target.Mode == TransferMode.Tramite ? "TRAMITE TELEMATICO (SOLO CAPI REPARTO)" : "VIA GERARCHICA (PROSSIMO PASSO)",
                     FontSize = 11,
                     FontWeight = FontWeights.SemiBold,
                     Foreground = (Brush)Application.Current.FindResource("TextMuted"),
@@ -120,6 +120,11 @@ public static class Dialogs
                 Padding = new Thickness(6, 2, 0, 2)
             };
             radio.Checked += (_, _) => ok.IsEnabled = true;
+            if (targets.Count == 1)
+            {
+                radio.IsChecked = true; // un solo passo possibile: è già scelto
+            }
+
             choices.Add((radio, target));
             root.Children.Add(radio);
         }
@@ -154,7 +159,7 @@ public static class Dialogs
 
         root.Children.Add(new TextBlock
         {
-            Text = $"L'appunto {practice.Id} tornerà a {sender.Name} ({sender.Role.DisplayName()}).",
+            Text = $"L'appunto {practice.Id} tornerà a {sender.Name} ({sender.RoleName}).",
             TextWrapping = TextWrapping.Wrap
         });
 
@@ -194,14 +199,46 @@ public static class Dialogs
 
     // ---------- Nuova pratica ----------
 
-    public static NewPracticeInput? AskNewPractice(Window owner)
+    public static NewPracticeInput? AskNewPractice(Window owner, WorkflowEngine engine, string userId)
     {
-        var dialog = Create(owner, "Nuova pratica", 560);
+        var dialog = Create(owner, "Nuova pratica", 600);
         var root = new StackPanel { Margin = new Thickness(22) };
 
         root.Children.Add(new TextBlock { Text = "Nome documento", FontWeight = FontWeights.SemiBold });
         var nameBox = new TextBox { Margin = new Thickness(0, 4, 0, 0), Padding = new Thickness(6) };
         root.Children.Add(nameBox);
+
+        // Il livello decisionale lo sceglie chi carica la pratica e fissa fin d'ora tutto il percorso di salita.
+        root.Children.Add(new TextBlock
+        {
+            Text = "Livello decisionale",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 14, 0, 0)
+        });
+        var levelBox = new ComboBox { Margin = new Thickness(0, 4, 0, 0) };
+        var levels = new[] { 0, 4, 3, 2, 1 };
+        foreach (var level in levels)
+        {
+            levelBox.Items.Add(level == 0
+                ? "Reparto · si ferma al Capo Reparto"
+                : $"{WorkflowText.LevelName(level)} · fino all'Autorità di vertice {WorkflowText.LevelName(level)}");
+        }
+
+        levelBox.SelectedIndex = 0;
+        root.Children.Add(levelBox);
+
+        var routeText = Muted(string.Empty, new Thickness(0, 8, 0, 0));
+        root.Children.Add(routeText);
+
+        void ShowRoute()
+        {
+            var level = levels[Math.Max(0, levelBox.SelectedIndex)];
+            var names = engine.BuildRoute(userId, level).Select(id => engine.GetUser(id).Name);
+            routeText.Text = "Percorso: " + string.Join(" → ", names);
+        }
+
+        levelBox.SelectionChanged += (_, _) => ShowRoute();
+        ShowRoute();
 
         var coverBox = AddFilePicker(root, "Contropagina (PDF o Word)");
         var attachmentBox = AddFilePicker(root, "Allegato (PDF o Word)");
@@ -223,7 +260,100 @@ public static class Dialogs
         return new NewPracticeInput(
             nameBox.Text.Trim(),
             string.IsNullOrWhiteSpace(coverBox.Text) ? null : coverBox.Text,
-            string.IsNullOrWhiteSpace(attachmentBox.Text) ? null : attachmentBox.Text);
+            string.IsNullOrWhiteSpace(attachmentBox.Text) ? null : attachmentBox.Text,
+            levels[Math.Max(0, levelBox.SelectedIndex)]);
+    }
+
+    // ---------- Firma ----------
+
+    /// <summary>Mostra la firma preimpostata dell'Ufficiale e permette di caricarne un'altra (PNG) o di toglierla.</summary>
+    public static void ManageSignature(Window owner, PracticeLibrary library, WorkflowUser user)
+    {
+        var dialog = Create(owner, "Firma preimpostata", 520);
+        var root = new StackPanel { Margin = new Thickness(22) };
+
+        root.Children.Add(new TextBlock { Text = user.Label, FontWeight = FontWeights.SemiBold, FontSize = 15 });
+        root.Children.Add(Muted(
+            "La firma (PNG, meglio con sfondo trasparente) viene apposta sul documento quando premi Concordo, Approvo o Visto.",
+            new Thickness(0, 4, 0, 0)));
+
+        var frame = new Border
+        {
+            Margin = new Thickness(0, 14, 0, 0),
+            Height = 120,
+            Background = Brushes.White,
+            BorderBrush = (Brush)Application.Current.FindResource("Stroke"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6)
+        };
+        var preview = new Image { Margin = new Thickness(8), Stretch = Stretch.Uniform };
+        var empty = new TextBlock
+        {
+            Text = "Nessuna firma caricata",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)Application.Current.FindResource("TextMuted")
+        };
+        var holder = new Grid();
+        holder.Children.Add(preview);
+        holder.Children.Add(empty);
+        frame.Child = holder;
+        root.Children.Add(frame);
+
+        var message = Muted(string.Empty, new Thickness(0, 8, 0, 0));
+        root.Children.Add(message);
+
+        var choose = new Button { Content = "Scegli PNG…", MinWidth = 110, Margin = new Thickness(0, 0, 8, 0) };
+        var remove = new Button { Content = "Rimuovi", MinWidth = 90 };
+        var close = new Button { Content = "Chiudi", IsCancel = true, IsDefault = true, MinWidth = 100 };
+
+        void Refresh()
+        {
+            var path = library.GetSignaturePath(user.Id);
+            preview.Source = path is null ? null : Services.ImageLoader.Load(path);
+            empty.Visibility = path is null ? Visibility.Visible : Visibility.Collapsed;
+            remove.IsEnabled = path is not null;
+        }
+
+        choose.Click += (_, _) =>
+        {
+            var picker = new OpenFileDialog { Filter = "Immagine PNG (*.png)|*.png", Title = "Scegli la tua firma" };
+            if (picker.ShowDialog() != true)
+            {
+                return;
+            }
+
+            try
+            {
+                library.SetUserSignature(user.Id, picker.FileName);
+                message.Text = "Firma salvata.";
+            }
+            catch (Exception ex)
+            {
+                message.Text = "Non posso usare questo file: " + ex.Message;
+            }
+
+            Refresh();
+        };
+
+        remove.Click += (_, _) =>
+        {
+            library.RemoveUserSignature(user.Id);
+            message.Text = "Firma rimossa: i timbri già apposti restano com'erano.";
+            Refresh();
+        };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 14, 0, 0) };
+        row.Children.Add(choose);
+        row.Children.Add(remove);
+        var spacer = new Border { Width = 120 };
+        row.Children.Add(spacer);
+        row.Children.Add(close);
+        root.Children.Add(row);
+
+        dialog.Content = root;
+        Refresh();
+        dialog.ShowDialog();
     }
 
     private static TextBox AddFilePicker(Panel parent, string label)
