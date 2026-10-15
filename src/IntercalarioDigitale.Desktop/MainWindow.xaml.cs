@@ -341,16 +341,16 @@ public partial class MainWindow : Window
             foreach (var (item, name) in files)
             {
                 var source = Path.Combine(binder, item.RelativePdfPath);
-                var target = Path.Combine(folder, $"{practice.Id}_{name.Replace('.', '_')}.pdf");
+                var target = Path.Combine(folder, $"{practice.Id}_{name.Replace('.', '_')}{Path.GetExtension(item.RelativePdfPath)}");
                 File.Copy(source, target, overwrite: true);
                 count++;
             }
 
-            Dialogs.Info(this, $"Salvati {count} PDF della pratica {practice.Id} in:\n{folder}");
+            Dialogs.Info(this, $"Salvati {count} documenti della pratica {practice.Id} in:\n{folder}");
         }
         catch (Exception ex)
         {
-            Dialogs.Error(this, "Non riesco a salvare i PDF: " + ex.Message);
+            Dialogs.Error(this, "Non riesco a salvare i documenti: " + ex.Message);
         }
     }
 

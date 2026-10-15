@@ -1,7 +1,22 @@
 namespace IntercalarioDigitale.Core;
 
 /// <summary>Un documento mostrato nella colonna laterale di un riquadro del viewer.</summary>
-public sealed record BinderItem(string DocumentId, string Label, string Title, string RelativePdfPath, bool IsAnnex);
+public sealed record BinderItem(
+    string DocumentId,
+    string Label,
+    string Title,
+    string RelativePdfPath,
+    bool IsAnnex,
+    int Revision = 0,
+    DateTimeOffset? ModifiedAtUtc = null,
+    string? ModifiedBy = null,
+    string? OriginalRelativePath = null)
+{
+    /// <summary>Documento Word: si legge in sola lettura, si modifica scaricando una copia e sostituendola.</summary>
+    public bool IsWord => DocumentFormats.IsWord(RelativePdfPath);
+
+    public bool HasOriginal => OriginalRelativePath is not null;
+}
 
 /// <summary>
 /// Calcola quali documenti compaiono sui due lati del viewer e con quale etichetta:
@@ -15,13 +30,13 @@ public static class BinderLayout
     {
         var items = new List<BinderItem>
         {
-            new(CoverDocumentId, "0", manifest.Cover.Title, manifest.Cover.RelativePdfPath, false)
+            Make(CoverDocumentId, "0", manifest.Cover.Title, manifest.Cover, false)
         };
 
         for (var i = 0; i < manifest.CoverAttachments.Count; i++)
         {
             var document = manifest.CoverAttachments[i];
-            items.Add(new BinderItem(document.Id, (i + 1).ToString(), document.Title, document.RelativePdfPath, false));
+            items.Add(Make(document.Id, (i + 1).ToString(), document.Title, document, false));
         }
 
         return items;
@@ -38,16 +53,23 @@ public static class BinderLayout
         foreach (var attachment in all.Where(IsTopLevel))
         {
             number++;
-            items.Add(new BinderItem(attachment.Id, number.ToString(), attachment.Title, attachment.RelativePdfPath, false));
+            items.Add(Make(attachment.Id, number.ToString(), attachment.Title, attachment, false));
 
             var annex = 0;
             foreach (var child in all.Where(a => a.ParentId == attachment.Id))
             {
                 annex++;
-                items.Add(new BinderItem(child.Id, $"L{number}.{annex}", child.Title, child.RelativePdfPath, true));
+                items.Add(Make(child.Id, $"L{number}.{annex}", child.Title, child, true));
             }
         }
 
         return items;
     }
+
+    /// <summary>Cerca un documento su entrambi i lati, per Id.</summary>
+    public static BinderItem? Find(BinderManifest manifest, string documentId) =>
+        CoverSide(manifest).Concat(AttachmentSide(manifest)).FirstOrDefault(i => i.DocumentId == documentId);
+
+    private static BinderItem Make(string id, string label, string title, IRevisableDocument document, bool isAnnex) =>
+        new(id, label, title, document.RelativePdfPath, isAnnex, document.Revision, document.ModifiedAtUtc, document.ModifiedBy, document.OriginalRelativePath);
 }

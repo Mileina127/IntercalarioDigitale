@@ -39,15 +39,23 @@ e cancella quella cartella.
   I tratti sono salvati per pagina in `annotations/<documentId>.json`, senza toccare il PDF.
 - **Analisi IA**: pannello di chat con risposte simulate (concordanze, approvazioni, annotazioni), ambito selezionabile.
 - **Validazione**: timbri Concordato (Capi Sezione e Ufficio), Approvato (Capi Reparto e Vertice) e Aggiuntivo/Visto (tutti).
-- **Nuova pratica**: scegli due PDF tuoi oppure lascia vuoto per generare documenti di esempio.
+- **Nuova pratica**: scegli due documenti (PDF o Word) tuoi oppure lascia vuoto per generare documenti di esempio.
+- **Documenti Word**: si possono inserire come allegati, annessi o documenti della contropagina. Si leggono
+  **in sola lettura**: l'app li trasforma in un PDF di anteprima (serve Microsoft Word oppure LibreOffice installato;
+  il Word originale non viene mai modificato e le macro non si eseguono). Per modificarli: «Scarica copia»,
+  si lavora in Word e poi «Sostituisci…» (solo per chi ha in carico l'appunto).
+- **Prima versione sempre conservata**: alla prima sostituzione l'originale viene copiato in `originals/` e resta
+  consultabile con «Vedi originale» (sola lettura). Le sostituzioni successive scartano le versioni intermedie e
+  tengono solo l'originale e la versione attuale. Ogni sostituzione è registrata nei movimenti.
 
 ## Struttura dell'intercalario
 
 Quando inizializzi un intercalario viene creata questa struttura:
 
 - `manifest.json`
-- `cover.pdf`
-- `attachments/*.pdf`
+- `cover.pdf` (o `cover.docx`)
+- `attachments/*.pdf` (o `*.docx`)
+- `originals/<documentId>.*` (prima versione dei documenti sostituiti)
 - `annotations/<documentId>.json`
 
 ## Progetti

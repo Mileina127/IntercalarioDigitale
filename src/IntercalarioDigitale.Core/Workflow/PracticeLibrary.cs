@@ -122,17 +122,44 @@ public sealed class PracticeLibrary
     }
 
     /// <summary>Aggiunge un allegato (o un annesso, con <paramref name="parentId"/>) alla pratica; senza PDF ne genera uno di esempio.</summary>
-    public AttachmentDocument AddAttachment(string practiceId, string title, string? pdfPath = null, string? parentId = null)
+    public AttachmentDocument AddAttachment(string practiceId, string title, string? filePath = null, string? parentId = null)
     {
         var binderPath = GetBinderPath(practiceId);
-        return WithPdf(pdfPath, title, $"Allegato alla pratica {practiceId}", path => Binders.AddAttachment(binderPath, path, title, parentId));
+        return WithPdf(filePath, title, $"Allegato alla pratica {practiceId}", path => Binders.AddAttachment(binderPath, path, title, parentId));
     }
 
     /// <summary>Aggiunge un documento alla contropagina della pratica; senza PDF ne genera uno di esempio.</summary>
-    public AttachmentDocument AddCoverAttachment(string practiceId, string title, string? pdfPath = null)
+    public AttachmentDocument AddCoverAttachment(string practiceId, string title, string? filePath = null)
     {
         var binderPath = GetBinderPath(practiceId);
-        return WithPdf(pdfPath, title, $"Contropagina della pratica {practiceId}", path => Binders.AddCoverAttachment(binderPath, path, title));
+        return WithPdf(filePath, title, $"Contropagina della pratica {practiceId}", path => Binders.AddCoverAttachment(binderPath, path, title));
+    }
+
+    /// <summary>Solo chi ha in carico l'appunto può sostituire i suoi documenti.</summary>
+    public bool CanReplace(string practiceId, string userId) => Engine.GetPractice(practiceId).HolderId == userId;
+
+    /// <summary>
+    /// Sostituisce un documento con una nuova versione (per esempio un Word modificato e ricaricato).
+    /// Si conservano solo l'originale e la versione attuale; l'operazione resta nel registro dei movimenti.
+    /// </summary>
+    public ReplaceResult ReplaceDocument(string practiceId, string documentId, string newFilePath, string userId)
+    {
+        var user = Engine.GetUser(userId);
+        if (!CanReplace(practiceId, userId))
+        {
+            throw new InvalidOperationException("Solo chi ha in carico l'appunto può sostituire i documenti.");
+        }
+
+        var binderPath = GetBinderPath(practiceId);
+        var item = BinderLayout.Find(Binders.LoadManifest(binderPath), documentId)
+            ?? throw new ArgumentException("Documento non trovato", nameof(documentId));
+
+        var result = Binders.ReplaceDocument(binderPath, documentId, newFilePath, user.Name);
+
+        Engine.AddLog($"{user.Name} ha sostituito «{item.Title}» ({item.Label}) nella pratica {practiceId}" +
+            (result.OriginalPreserved ? " · originale conservato" : string.Empty));
+        Save();
+        return result;
     }
 
     private static AttachmentDocument WithPdf(string? pdfPath, string title, string subtitle, Func<string, AttachmentDocument> add)
