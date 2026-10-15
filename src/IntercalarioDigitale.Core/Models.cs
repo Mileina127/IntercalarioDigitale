@@ -12,13 +12,34 @@ public sealed class BinderManifest
     public List<AttachmentDocument> Attachments { get; set; } = [];
 }
 
-public sealed class CoverDocument
+/// <summary>Un documento che può essere sostituito: si tiene la versione attuale e, a parte, la prima (l'originale).</summary>
+public interface IRevisableDocument
+{
+    /// <summary>File attuale (PDF o Word). Il nome della proprietà resta «RelativePdfPath» per compatibilità con i manifest già salvati.</summary>
+    string RelativePdfPath { get; set; }
+
+    /// <summary>0 finché il documento non è mai stato sostituito; poi cresce a ogni sostituzione.</summary>
+    int Revision { get; set; }
+
+    DateTimeOffset? ModifiedAtUtc { get; set; }
+
+    string? ModifiedBy { get; set; }
+
+    /// <summary>File com'era alla partenza, conservato alla prima sostituzione e mai più toccato.</summary>
+    string? OriginalRelativePath { get; set; }
+}
+
+public sealed class CoverDocument : IRevisableDocument
 {
     public string Title { get; set; } = "Copertina";
     public string RelativePdfPath { get; set; } = "cover.pdf";
+    public int Revision { get; set; }
+    public DateTimeOffset? ModifiedAtUtc { get; set; }
+    public string? ModifiedBy { get; set; }
+    public string? OriginalRelativePath { get; set; }
 }
 
-public sealed class AttachmentDocument
+public sealed class AttachmentDocument : IRevisableDocument
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Title { get; set; } = string.Empty;
@@ -27,6 +48,11 @@ public sealed class AttachmentDocument
 
     /// <summary>Se valorizzato, il documento è un annesso dell'allegato con questo Id.</summary>
     public string? ParentId { get; set; }
+
+    public int Revision { get; set; }
+    public DateTimeOffset? ModifiedAtUtc { get; set; }
+    public string? ModifiedBy { get; set; }
+    public string? OriginalRelativePath { get; set; }
 }
 
 public sealed class InkStrokePoint

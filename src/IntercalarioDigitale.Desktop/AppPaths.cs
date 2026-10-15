@@ -18,4 +18,7 @@ public static class AppPaths
                 "GerarchIA");
         }
     }
+
+    /// <summary>Anteprime PDF dei documenti Word già convertiti (si possono cancellare in ogni momento).</summary>
+    public static string CacheFolder => Path.Combine(DataFolder, "cache");
 }

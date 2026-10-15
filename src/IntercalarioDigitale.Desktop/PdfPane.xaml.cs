@@ -9,8 +9,18 @@ using IntercalarioDigitale.Desktop.Services;
 
 namespace IntercalarioDigitale.Desktop;
 
-/// <summary>Un documento (PDF) mostrato nella colonna laterale di un riquadro.</summary>
-public sealed record PaneDocument(string Id, string Label, string Title, string FullPath, bool IsAnnex);
+/// <summary>
+/// Un documento (PDF o Word) mostrato nella colonna laterale di un riquadro.
+/// Se è stato sostituito, <paramref name="OriginalFullPath"/> punta alla prima versione conservata.
+/// </summary>
+public sealed record PaneDocument(
+    string Id,
+    string Label,
+    string Title,
+    string FullPath,
+    bool IsAnnex,
+    string? OriginalFullPath = null,
+    string? Note = null);
 
 public sealed class DocumentEventArgs : EventArgs
 {
@@ -53,6 +63,9 @@ public partial class PdfPane : UserControl
         public PaneDocument Info { get; }
         public PdfiumDocument? Pdf { get; set; }
         public string? Error { get; set; }
+        public PdfiumDocument? OriginalPdf { get; set; }
+        public string? OriginalError { get; set; }
+        public bool ShowingOriginal { get; set; }
         public Dictionary<int, StrokeCollection> Strokes { get; } = new();
         public int Page { get; set; }
 
@@ -65,6 +78,7 @@ public partial class PdfPane : UserControl
     private int _pageIndex = -1;
     private double _logicalHeight = 842;
     private bool _updatingRail;
+    private bool _annotating;
     private (string Doc, int Page, int Width) _renderedKey = (string.Empty, -1, -1);
 
     public PdfPane()
@@ -91,7 +105,19 @@ public partial class PdfPane : UserControl
     /// <summary>È stato scelto un altro documento nella colonna laterale.</summary>
     public event EventHandler? DocumentChanged;
 
+    /// <summary>L'utente ha chiesto una copia del documento aperto (da modificare fuori dall'app).</summary>
+    public event EventHandler<DocumentEventArgs>? DownloadRequested;
+
+    /// <summary>L'utente vuole sostituire il documento aperto con una versione modificata.</summary>
+    public event EventHandler<DocumentEventArgs>? ReplaceRequested;
+
     public bool RailOnRight { get; set; }
+
+    /// <summary>Solo chi ha in carico l'appunto può sostituire i documenti.</summary>
+    public bool CanReplace { get; set; } = true;
+
+    private PdfiumDocument? ActivePdf =>
+        _current is null ? null : _current.ShowingOriginal ? _current.OriginalPdf : _current.Pdf;
 
     /// <summary>Elemento a cui agganciare un menu aperto dal pulsante «+».</summary>
     public FrameworkElement AddAnchor => AddButton;
@@ -101,12 +127,12 @@ public partial class PdfPane : UserControl
     public string? CurrentTitle => _current?.Info.Title;
 
     /// <summary>Pagine del PDF aperto.</summary>
-    public int PageCount => _current?.Pdf?.PageCount ?? 0;
+    public int PageCount => ActivePdf?.PageCount ?? 0;
 
     /// <summary>Pagine con almeno un tratto, su tutti i documenti del riquadro.</summary>
     public int AnnotatedPageCount => _docs.Sum(d => d.Strokes.Count(pair => pair.Value.Count > 0));
 
-    public bool HasDocument => _current?.Pdf is not null;
+    public bool HasDocument => ActivePdf is not null;
 
     /// <summary>Mostra l'elenco dei documenti e apre quello indicato (o il primo).</summary>
     public void LoadDocuments(
@@ -143,6 +169,14 @@ public partial class PdfPane : UserControl
 
     public void SetAnnotating(bool enabled)
     {
+        _annotating = enabled;
+        ApplyInkMode();
+    }
+
+    /// <summary>La penna è attiva solo se richiesta e se non si sta guardando l'originale (sola lettura).</summary>
+    private void ApplyInkMode()
+    {
+        var enabled = _annotating && _current is { ShowingOriginal: false };
         Ink.EditingMode = enabled ? InkCanvasEditingMode.Ink : InkCanvasEditingMode.None;
         Ink.IsHitTestVisible = enabled;
     }
@@ -219,35 +253,82 @@ public partial class PdfPane : UserControl
         _current = null;
         _pageIndex = -1;
         SubText.Text = message;
+        NoteText.Visibility = Visibility.Collapsed;
+        DownloadButton.IsEnabled = false;
+        ReplaceButton.IsEnabled = false;
+        OriginalButton.Visibility = Visibility.Collapsed;
         PageImage.Source = null;
         Ink.Strokes = new StrokeCollection();
         UpdatePager();
     }
 
-    private void ShowDocument(DocState state)
+    private void ShowDocument(DocState state, bool original = false)
+    {
+        state.ShowingOriginal = original && state.Info.OriginalFullPath is not null;
+        _ = ActivateAsync(state);
+    }
+
+    private async Task ActivateAsync(DocState state)
     {
         _current = state;
+        _pageIndex = -1;
 
         _updatingRail = true;
         Rail.SelectedIndex = _docs.IndexOf(state);
         _updatingRail = false;
 
-        if (state.Pdf is null && state.Error is null)
+        UpdateToolbar(state);
+        ApplyInkMode();
+
+        var wantOriginal = state.ShowingOriginal;
+        var pdf = wantOriginal ? state.OriginalPdf : state.Pdf;
+        var error = wantOriginal ? state.OriginalError : state.Error;
+
+        if (pdf is null && error is null)
         {
+            // I Word vanno prima trasformati in PDF: può servire qualche secondo.
+            SubText.Text = $"{state.Info.Title} · preparo l'anteprima…";
+            PageImage.Source = null;
+            Ink.Strokes = new StrokeCollection();
+            UpdatePager();
+
             try
             {
-                state.Pdf = PdfiumDocument.Open(state.Info.FullPath);
+                var opened = await OpenPdfAsync(wantOriginal ? state.Info.OriginalFullPath! : state.Info.FullPath);
+                if (wantOriginal)
+                {
+                    state.OriginalPdf = opened;
+                }
+                else
+                {
+                    state.Pdf = opened;
+                }
             }
             catch (Exception ex)
             {
-                state.Error = ex.Message;
+                if (wantOriginal)
+                {
+                    state.OriginalError = ex.Message;
+                }
+                else
+                {
+                    state.Error = ex.Message;
+                }
             }
+
+            if (!ReferenceEquals(_current, state) || state.ShowingOriginal != wantOriginal)
+            {
+                return; // nel frattempo l'utente ha scelto altro
+            }
+
+            pdf = wantOriginal ? state.OriginalPdf : state.Pdf;
+            error = wantOriginal ? state.OriginalError : state.Error;
         }
 
-        if (state.Pdf is null)
+        if (pdf is null)
         {
             _pageIndex = -1;
-            SubText.Text = $"{state.Info.Title}: impossibile aprire il PDF ({state.Error})";
+            SubText.Text = $"{state.Info.Title}: impossibile aprire il documento ({error})";
             PageImage.Source = null;
             Ink.Strokes = new StrokeCollection();
             UpdatePager();
@@ -255,10 +336,43 @@ public partial class PdfPane : UserControl
             return;
         }
 
-        SubText.Text = $"{state.Info.Title} · {state.Pdf.PageCount} pag.";
+        SubText.Text = $"{state.Info.Title} · {pdf.PageCount} pag.";
         _renderedKey = (string.Empty, -1, -1);
-        ShowPage(Math.Clamp(state.Page, 0, state.Pdf.PageCount - 1));
+        ShowPage(Math.Clamp(state.Page, 0, pdf.PageCount - 1));
         DocumentChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Apre un PDF; un Word viene convertito in un PDF di anteprima (l'originale non si tocca).</summary>
+    private static async Task<PdfiumDocument> OpenPdfAsync(string fullPath)
+    {
+        var pdfPath = DocumentFormats.IsWord(fullPath)
+            ? await WordConverter.ConvertToPdfAsync(fullPath)
+            : fullPath;
+        return PdfiumDocument.Open(pdfPath);
+    }
+
+    private void UpdateToolbar(DocState state)
+    {
+        var info = state.Info;
+        var hasOriginal = info.OriginalFullPath is not null;
+
+        DownloadButton.IsEnabled = true;
+        ReplaceButton.IsEnabled = CanReplace && !state.ShowingOriginal;
+        ReplaceButton.ToolTip = CanReplace
+            ? "Sostituisci il documento con la versione modificata"
+            : "Solo chi ha in carico l'appunto può sostituire i documenti";
+
+        OriginalButton.Visibility = hasOriginal ? Visibility.Visible : Visibility.Collapsed;
+        OriginalButton.Content = state.ShowingOriginal ? "Torna alla versione attuale" : "Vedi originale";
+
+        var note = state.ShowingOriginal
+            ? "Prima versione conservata · sola lettura"
+            : DocumentFormats.IsWord(info.FullPath)
+                ? "Word · sola lettura" + (info.Note is null ? string.Empty : " · " + info.Note)
+                : info.Note;
+
+        NoteText.Text = note ?? string.Empty;
+        NoteText.Visibility = string.IsNullOrEmpty(note) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void RefreshRail()
@@ -290,7 +404,7 @@ public partial class PdfPane : UserControl
 
     private void ShowPage(int index)
     {
-        var pdf = _current?.Pdf;
+        var pdf = ActivePdf;
         if (_current is null || pdf is null || index < 0 || index >= pdf.PageCount)
         {
             return;
@@ -304,13 +418,20 @@ public partial class PdfPane : UserControl
         PageGrid.Width = LogicalWidth;
         PageGrid.Height = _logicalHeight;
 
-        if (!_current.Strokes.TryGetValue(index, out var strokes))
+        if (_current.ShowingOriginal)
         {
-            strokes = new StrokeCollection();
-            _current.Strokes[index] = strokes;
+            Ink.Strokes = new StrokeCollection(); // l'originale non si annota
         }
+        else
+        {
+            if (!_current.Strokes.TryGetValue(index, out var strokes))
+            {
+                strokes = new StrokeCollection();
+                _current.Strokes[index] = strokes;
+            }
 
-        Ink.Strokes = strokes;
+            Ink.Strokes = strokes;
+        }
 
         UpdatePager();
         _renderedKey = (string.Empty, -1, -1);
@@ -319,7 +440,7 @@ public partial class PdfPane : UserControl
 
     private void UpdatePager()
     {
-        var pdf = _current?.Pdf;
+        var pdf = ActivePdf;
         var count = pdf?.PageCount ?? 0;
 
         if (pdf is null || _pageIndex < 0)
@@ -330,7 +451,7 @@ public partial class PdfPane : UserControl
             return;
         }
 
-        var hasInk = _current!.Strokes.TryGetValue(_pageIndex, out var strokes) && strokes.Count > 0;
+        var hasInk = !_current!.ShowingOriginal && _current.Strokes.TryGetValue(_pageIndex, out var strokes) && strokes.Count > 0;
         PagerText.Text = $"Pagina {_pageIndex + 1} di {count}" + (hasInk ? " · annotata" : string.Empty);
         PrevButton.IsEnabled = _pageIndex > 0;
         NextButton.IsEnabled = _pageIndex < count - 1;
@@ -338,7 +459,7 @@ public partial class PdfPane : UserControl
 
     private void RenderCurrentPage()
     {
-        var pdf = _current?.Pdf;
+        var pdf = ActivePdf;
         if (_current is null || pdf is null || _pageIndex < 0)
         {
             return;
@@ -353,7 +474,7 @@ public partial class PdfPane : UserControl
         var dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
         var pixelWidth = (int)Math.Clamp(LogicalWidth * scale * dpi, 240, 2600);
 
-        var key = (_current.Info.Id, _pageIndex, pixelWidth);
+        var key = (_current.Info.Id + (_current.ShowingOriginal ? "#originale" : string.Empty), _pageIndex, pixelWidth);
         if (_renderedKey == key)
         {
             return;
@@ -401,6 +522,33 @@ public partial class PdfPane : UserControl
     private void NextButton_Click(object sender, RoutedEventArgs e) => ShowPage(_pageIndex + 1);
 
     private void AddButton_Click(object sender, RoutedEventArgs e) => AddRequested?.Invoke(this, EventArgs.Empty);
+
+    private void DownloadButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current is not null)
+        {
+            DownloadRequested?.Invoke(this, new DocumentEventArgs(_current.Info.Id));
+        }
+    }
+
+    private void ReplaceButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current is not null)
+        {
+            ReplaceRequested?.Invoke(this, new DocumentEventArgs(_current.Info.Id));
+        }
+    }
+
+    private void OriginalButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current is null)
+        {
+            return;
+        }
+
+        _current.Page = 0;
+        ShowDocument(_current, original: !_current.ShowingOriginal);
+    }
 
     private void Pane_PreviewMouseDown(object sender, MouseButtonEventArgs e) => Focus();
 

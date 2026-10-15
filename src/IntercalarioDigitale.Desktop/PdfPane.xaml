@@ -22,6 +22,17 @@
                 <TextBlock x:Name="SubText" FontSize="12" HorizontalAlignment="Center"
                            Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis"
                            MaxWidth="360"/>
+                <TextBlock x:Name="NoteText" FontSize="11" HorizontalAlignment="Center"
+                           Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis"
+                           MaxWidth="360" Visibility="Collapsed"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,4,0,0">
+                    <Button x:Name="DownloadButton" Content="Scarica copia" FontSize="11" Padding="8,2"
+                            Margin="0,0,4,0" ToolTip="Salva una copia del documento per modificarla" Click="DownloadButton_Click"/>
+                    <Button x:Name="ReplaceButton" Content="Sostituisci…" FontSize="11" Padding="8,2"
+                            Margin="0,0,4,0" ToolTip="Sostituisci il documento con la versione modificata" Click="ReplaceButton_Click"/>
+                    <Button x:Name="OriginalButton" Content="Vedi originale" FontSize="11" Padding="8,2"
+                            Visibility="Collapsed" ToolTip="Mostra la prima versione conservata" Click="OriginalButton_Click"/>
+                </StackPanel>
             </StackPanel>
 
             <Grid Grid.Row="1">

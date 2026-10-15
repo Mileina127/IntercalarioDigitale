@@ -46,6 +46,10 @@ public partial class ViewerWindow : Window
         AttachmentPane.AnnotationsChanged += Pane_AnnotationsChanged;
         CoverPane.AddRequested += CoverPane_AddRequested;
         AttachmentPane.AddRequested += AttachmentPane_AddRequested;
+        CoverPane.DownloadRequested += Pane_DownloadRequested;
+        AttachmentPane.DownloadRequested += Pane_DownloadRequested;
+        CoverPane.ReplaceRequested += Pane_ReplaceRequested;
+        AttachmentPane.ReplaceRequested += Pane_ReplaceRequested;
         AttachmentPane.DocumentChanged += (_, _) => UpdateScopeText();
 
         LoadPanes();
@@ -60,6 +64,10 @@ public partial class ViewerWindow : Window
     private void LoadPanes(string? selectCoverId = null, string? selectAttachmentId = null)
     {
         _manifest = _library.Binders.LoadManifest(_binderPath);
+
+        var canReplace = _library.CanReplace(_practice.Id, _user.Id);
+        CoverPane.CanReplace = canReplace;
+        AttachmentPane.CanReplace = canReplace;
 
         CoverPane.RailOnRight = false;
         CoverPane.LoadDocuments(
@@ -92,8 +100,15 @@ public partial class ViewerWindow : Window
                 item.Label,
                 item.Title,
                 Path.Combine(_binderPath, item.RelativePdfPath),
-                item.IsAnnex))
+                item.IsAnnex,
+                item.OriginalRelativePath is null ? null : Path.Combine(_binderPath, item.OriginalRelativePath),
+                DescribeRevision(item)))
             .ToList();
+
+    private static string? DescribeRevision(BinderItem item) =>
+        item.HasOriginal && item.ModifiedAtUtc is { } when
+            ? $"sostituito da {item.ModifiedBy} il {ItalianDate.Format(when.ToLocalTime())}"
+            : null;
 
     // ---------- aggiunta di documenti ----------
 
@@ -153,8 +168,8 @@ public partial class ViewerWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Filter = "Documenti PDF (*.pdf)|*.pdf",
-            Title = toCover ? "Scegli il PDF da aggiungere alla contropagina" : parent is null ? "Scegli il PDF dell'allegato" : "Scegli il PDF dell'annesso"
+            Filter = DocumentFormats.OpenFileFilter,
+            Title = toCover ? "Scegli il documento (PDF o Word) da aggiungere alla contropagina" : parent is null ? "Scegli il documento (PDF o Word) dell'allegato" : "Scegli il documento (PDF o Word) dell'annesso"
         };
 
         if (dialog.ShowDialog(this) != true)
@@ -176,8 +191,108 @@ public partial class ViewerWindow : Window
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Impossibile aggiungere il PDF: " + ex.Message;
+            StatusText.Text = "Impossibile aggiungere il documento: " + ex.Message;
         }
+    }
+
+    // ---------- copia e sostituzione (Word in sola lettura) ----------
+
+    /// <summary>Salva una copia del documento aperto: si modifica fuori dall'app e poi si usa «Sostituisci».</summary>
+    private void Pane_DownloadRequested(object? sender, DocumentEventArgs e)
+    {
+        var item = BinderLayout.Find(_manifest, e.DocumentId);
+        if (item is null)
+        {
+            return;
+        }
+
+        var source = Path.Combine(_binderPath, item.RelativePdfPath);
+        var extension = Path.GetExtension(source);
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Salva una copia del documento",
+            FileName = SafeFileName($"{item.Label} {item.Title}") + extension,
+            DefaultExt = extension,
+            Filter = DocumentFormats.IsWord(source)
+                ? "Documento Word (*" + extension + ")|*" + extension
+                : "Documento PDF (*.pdf)|*.pdf"
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Copy(source, dialog.FileName, overwrite: true);
+            StatusText.Text = $"Copia di «{item.Title}» salvata. Dopo le modifiche usa «Sostituisci…».";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Impossibile salvare la copia: " + ex.Message;
+        }
+    }
+
+    private void Pane_ReplaceRequested(object? sender, DocumentEventArgs e)
+    {
+        var item = BinderLayout.Find(_manifest, e.DocumentId);
+        if (item is null)
+        {
+            return;
+        }
+
+        if (!_library.CanReplace(_practice.Id, _user.Id))
+        {
+            StatusText.Text = "Solo chi ha in carico l'appunto può sostituire i documenti.";
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = DocumentFormats.OpenFileFilter,
+            Title = $"Scegli la versione modificata di «{item.Title}»"
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        var note = item.HasOriginal
+            ? "La versione attuale verrà sostituita e non sarà più recuperabile.\nResta conservata la prima versione."
+            : "La prima versione resta conservata e consultabile con «Vedi originale».";
+        var answer = MessageBox.Show(
+            this,
+            $"Sostituire «{item.Title}» con «{Path.GetFileName(dialog.FileName)}»?\n\n{note}\nLa sostituzione sarà registrata nei movimenti.",
+            "Sostituisci documento",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question);
+        if (answer != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        try
+        {
+            _library.ReplaceDocument(_practice.Id, item.DocumentId, dialog.FileName, _user.Id);
+            LoadPanes(CoverPane.CurrentDocumentId, AttachmentPane.CurrentDocumentId);
+            StatusText.Text = $"«{item.Title}» sostituito.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Impossibile sostituire il documento: " + ex.Message;
+        }
+    }
+
+    private static string SafeFileName(string name)
+    {
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(invalid, '_');
+        }
+
+        return name.Trim();
     }
 
     private void StructButton_Click(object sender, RoutedEventArgs e) =>

@@ -203,9 +203,9 @@ public static class Dialogs
         var nameBox = new TextBox { Margin = new Thickness(0, 4, 0, 0), Padding = new Thickness(6) };
         root.Children.Add(nameBox);
 
-        var coverBox = AddFilePicker(root, "Contropagina (PDF)");
-        var attachmentBox = AddFilePicker(root, "Allegato (PDF)");
-        root.Children.Add(Muted("Se non scegli i PDF, vengono creati documenti di esempio.", new Thickness(0, 12, 0, 0)));
+        var coverBox = AddFilePicker(root, "Contropagina (PDF o Word)");
+        var attachmentBox = AddFilePicker(root, "Allegato (PDF o Word)");
+        root.Children.Add(Muted("Se non scegli i documenti, vengono creati documenti di esempio.", new Thickness(0, 12, 0, 0)));
 
         var buttons = ButtonRow(dialog, "Crea pratica", out var ok);
         ok.IsEnabled = false;
@@ -243,7 +243,7 @@ public static class Dialogs
         var browse = new Button { Content = "Sfoglia…", Margin = new Thickness(8, 0, 0, 0) };
         browse.Click += (_, _) =>
         {
-            var picker = new OpenFileDialog { Filter = "Documenti PDF (*.pdf)|*.pdf", Title = label };
+            var picker = new OpenFileDialog { Filter = DocumentFormats.OpenFileFilter, Title = label };
             if (picker.ShowDialog() == true)
             {
                 box.Text = picker.FileName;
@@ -261,7 +261,7 @@ public static class Dialogs
 
     public static string? PickFolder(Window owner)
     {
-        var dialog = new OpenFolderDialog { Title = "Scegli la cartella in cui salvare i PDF" };
+        var dialog = new OpenFolderDialog { Title = "Scegli la cartella in cui salvare i documenti" };
         return dialog.ShowDialog(owner) == true ? dialog.FolderName : null;
     }
 

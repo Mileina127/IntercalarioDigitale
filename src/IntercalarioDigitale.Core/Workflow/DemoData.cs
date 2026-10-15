@@ -1,3 +1,5 @@
+using IntercalarioDigitale.Core.Word;
+
 namespace IntercalarioDigitale.Core.Workflow;
 
 /// <summary>Utenti, Reparti e pratiche di esempio per la prima apertura dell'applicazione.</summary>
@@ -31,6 +33,25 @@ public static class DemoData
 
         var p2 = library.CreatePractice("Contratto Collaborazione Beta", "rossi", year: DemoYear);
         library.AddAttachment(p2.Id, "Condizioni economiche", parentId: FirstAttachmentId(library, p2.Id));
+
+        // Un allegato Word già modificato una volta: mostra la versione attuale e l'originale conservato.
+        var draft = WithTempFile(
+            "bozza.docx",
+            SampleWordFactory.Create(
+                "Bozza di contratto",
+                "Versione di partenza",
+                "Le parti convengono quanto segue.",
+                "Articolo 1. Oggetto della collaborazione: da definire."),
+            path => library.AddAttachment(p2.Id, "Bozza di contratto (Word)", path));
+        WithTempFile(
+            "bozza-modificata.docx",
+            SampleWordFactory.Create(
+                "Bozza di contratto",
+                "Versione modificata da L. Rossi",
+                "Le parti convengono quanto segue.",
+                "Articolo 1. Oggetto della collaborazione: servizi di consulenza amministrativa.",
+                "Articolo 2. Durata: dodici mesi, rinnovabile."),
+            path => library.ReplaceDocument(p2.Id, draft.Id, path, "rossi"));
         p2.FromId = "verdi";
         p2.Validations.Add(Stamp(ValidationKind.Concordato, "verdi", 2023, 10, 25, 10, 15));
 
@@ -59,6 +80,29 @@ public static class DemoData
 
         library.State.Log.Clear();
         library.Engine.AddLog("Pratica 2.026_3 inoltrata da L. Rossi ad A. Moretti");
+    }
+
+    private static T WithTempFile<T>(string fileName, byte[] content, Func<string, T> use)
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "gerarchia-demo-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var path = Path.Combine(folder, fileName);
+            File.WriteAllBytes(path, content);
+            return use(path);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+            catch (IOException)
+            {
+                // cartella temporanea: se resta lì non è un problema
+            }
+        }
     }
 
     private static string FirstAttachmentId(PracticeLibrary library, string practiceId) =>
