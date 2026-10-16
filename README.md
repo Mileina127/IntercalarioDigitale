@@ -46,6 +46,10 @@ e cancella quella cartella.
   annessi (L1.1, L1.2…). Le **pagine** del PDF aperto si sfogliano con il navigatore sotto la pagina
   (frecce, oppure Pag↑ e Pag↓). Il pulsante «+» sotto la colonna aggiunge un allegato, un annesso o un
   documento della contropagina.
+- **Copertina 0**: ogni pratica ha una copertina d'introduzione (PDF o Word) trattata come **allegato 0**, in cima
+  alla colonna degli allegati. Non ha contropagina: quando è aperta si vede da sola, al centro. Scegliendo l'allegato
+  1 o un altro documento tornano la contropagina e l'allegato affiancati. Si scarica, si sostituisce e conserva
+  l'originale come ogni altro documento. Nelle pratiche che non ce l'hanno, il «+» propone di aggiungerla.
 - **Annotazioni**: penna con mouse, stilo o dito (`InkCanvas`), tre colori e tre spessori, annulla e cancella pagina.
   I tratti sono salvati per pagina in `annotations/<documentId>.json`, senza toccare il PDF.
 - **Analisi IA**: pannello di chat con risposte simulate (concordanze, approvazioni, annotazioni), ambito selezionabile.
@@ -64,7 +68,8 @@ e cancella quella cartella.
 Quando inizializzi un intercalario viene creata questa struttura:
 
 - `manifest.json`
-- `cover.pdf` (o `cover.docx`)
+- `cover.pdf` (o `cover.docx`): la contropagina
+- `intro.pdf` (o `intro.docx`): la copertina 0 (allegato 0)
 - `attachments/*.pdf` (o `*.docx`)
 - `firme/*.png` (firme apposte con i timbri)
 - `originals/<documentId>.*` (prima versione dei documenti sostituiti)

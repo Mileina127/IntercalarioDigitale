@@ -55,6 +55,31 @@ public sealed class BinderRepository
         return manifest ?? throw new InvalidOperationException("Manifest non valido");
     }
 
+    /// <summary>Imposta la copertina d'introduzione (allegato 0). Ce n'è una sola: per cambiarla si usa <see cref="ReplaceDocument"/>.</summary>
+    public AttachmentDocument SetIntroduction(string binderRoot, string sourceFilePath, string? title = null)
+    {
+        EnsureSupportedFile(sourceFilePath);
+        var manifest = LoadManifest(binderRoot);
+        if (manifest.Introduction is not null)
+        {
+            throw new InvalidOperationException("L'intercalario ha già la copertina d'introduzione.");
+        }
+
+        var relativePath = "intro" + DocumentFormats.ExtensionOf(sourceFilePath);
+        File.Copy(sourceFilePath, Path.Combine(binderRoot, relativePath), overwrite: true);
+
+        var document = new AttachmentDocument
+        {
+            Id = BinderLayout.IntroductionDocumentId,
+            Title = string.IsNullOrWhiteSpace(title) ? "Copertina" : title,
+            RelativePdfPath = relativePath
+        };
+
+        manifest.Introduction = document;
+        SaveManifest(binderRoot, manifest);
+        return document;
+    }
+
     /// <summary>Aggiunge un allegato; con <paramref name="parentId"/> lo aggiunge come annesso di un allegato esistente.</summary>
     public AttachmentDocument AddAttachment(string binderRoot, string sourcePdfPath, string? title = null, string? parentId = null)
     {
@@ -137,9 +162,12 @@ public sealed class BinderRepository
             preserved = true;
         }
 
-        var newRelativePath = documentId == BinderLayout.CoverDocumentId
-            ? "cover" + newExtension
-            : Path.Combine(AttachmentsFolderName, $"{Guid.NewGuid():N}{newExtension}");
+        var newRelativePath = documentId switch
+        {
+            BinderLayout.CoverDocumentId => "cover" + newExtension,
+            BinderLayout.IntroductionDocumentId => "intro" + newExtension,
+            _ => Path.Combine(AttachmentsFolderName, $"{Guid.NewGuid():N}{newExtension}")
+        };
 
         File.Copy(newFilePath, Path.Combine(binderRoot, newRelativePath), overwrite: true);
 
@@ -169,6 +197,11 @@ public sealed class BinderRepository
         if (documentId == BinderLayout.CoverDocumentId)
         {
             return manifest.Cover;
+        }
+
+        if (documentId == BinderLayout.IntroductionDocumentId)
+        {
+            return manifest.Introduction;
         }
 
         return manifest.CoverAttachments.FirstOrDefault(a => a.Id == documentId)

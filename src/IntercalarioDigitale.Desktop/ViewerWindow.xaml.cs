@@ -50,7 +50,11 @@ public partial class ViewerWindow : Window
         AttachmentPane.DownloadRequested += Pane_DownloadRequested;
         CoverPane.ReplaceRequested += Pane_ReplaceRequested;
         AttachmentPane.ReplaceRequested += Pane_ReplaceRequested;
-        AttachmentPane.DocumentChanged += (_, _) => UpdateScopeText();
+        AttachmentPane.DocumentChanged += (_, _) =>
+        {
+            ApplyIntroLayout();
+            UpdateScopeText();
+        };
 
         LoadPanes();
         BuildSuggestions();
@@ -91,6 +95,25 @@ public partial class ViewerWindow : Window
             ToPaneDocuments(attachments),
             LoadAnnotations,
             selectAttachmentId);
+    }
+
+    private bool IntroductionShown => AttachmentPane.CurrentDocumentId == BinderLayout.IntroductionDocumentId;
+
+    /// <summary>
+    /// La copertina d'introduzione (allegato 0) non ha contropagina: si vede da sola, al centro.
+    /// Scegliendo un altro documento tornano i due riquadri affiancati.
+    /// </summary>
+    private void ApplyIntroLayout()
+    {
+        if (_placingSignature)
+        {
+            return; // si sistema alla fine dell'apposizione della firma
+        }
+
+        var alone = IntroductionShown;
+        CoverColumn.Width = alone ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        CoverPane.Visibility = alone ? Visibility.Collapsed : Visibility.Visible;
+        AttachmentPane.Margin = alone ? new Thickness(0) : new Thickness(6, 0, 0, 0);
     }
 
     /// <summary>Le firme già apposte (copiate nell'intercalario) si vedono sopra le pagine dei documenti.</summary>
@@ -143,6 +166,11 @@ public partial class ViewerWindow : Window
     {
         var menu = NewMenu(AttachmentPane.AddAnchor);
         AddMenuItem(menu, "Aggiungi un allegato…", () => AddFromFile(toCover: false, parent: null));
+
+        if (_manifest.Introduction is null)
+        {
+            AddMenuItem(menu, "Aggiungi la copertina (allegato 0)…", AddIntroductionFromFile);
+        }
 
         var parent = CurrentTopLevelAttachment();
         if (parent is not null)
@@ -313,6 +341,31 @@ public partial class ViewerWindow : Window
         }
 
         return name.Trim();
+    }
+
+    private void AddIntroductionFromFile()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = DocumentFormats.OpenFileFilter,
+            Title = "Scegli la copertina (PDF o Word) della pratica"
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            _library.AddIntroduction(_practice.Id, dialog.FileName);
+            LoadPanes(CoverPane.CurrentDocumentId, BinderLayout.IntroductionDocumentId);
+            StatusText.Text = "Copertina aggiunta come allegato 0.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Impossibile aggiungere la copertina: " + ex.Message;
+        }
     }
 
     private void StructButton_Click(object sender, RoutedEventArgs e) =>
@@ -608,10 +661,14 @@ public partial class ViewerWindow : Window
         }
 
         // Con la firma: la si trascina sulla pagina aperta della contropagina e poi si conferma.
+        // La copertina d'introduzione (allegato 0) non ha contropagina: lì la firma va sul documento al centro.
+        var target = IntroductionShown ? AttachmentPane : CoverPane;
+        var where = ReferenceEquals(target, CoverPane) ? "sulla contropagina" : "sulla copertina";
         _placingSignature = true;
-        var started = CoverPane.BeginPlacement(signature, placement =>
+        var started = target.BeginPlacement(signature, placement =>
         {
             _placingSignature = false;
+            ApplyIntroLayout();
             if (placement is null)
             {
                 StatusText.Text = "Apposizione annullata.";
@@ -623,12 +680,12 @@ public partial class ViewerWindow : Window
 
         if (started)
         {
-            StatusText.Text = $"Trascina la firma sulla contropagina, poi premi Conferma per apporre «{kind.Title()}».";
+            StatusText.Text = $"Trascina la firma {where}, poi premi Conferma per apporre «{kind.Title()}».";
         }
         else
         {
             _placingSignature = false;
-            StatusText.Text = "Apri una pagina della contropagina per apporre la firma.";
+            StatusText.Text = "Apri una pagina del documento per apporre la firma.";
         }
     }
 

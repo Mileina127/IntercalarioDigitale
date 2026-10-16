@@ -7,7 +7,7 @@ using Microsoft.Win32;
 
 namespace IntercalarioDigitale.Desktop;
 
-public sealed record NewPracticeInput(string Name, string? CoverPath, string? AttachmentPath, int DecisionLevel);
+public sealed record NewPracticeInput(string Name, string? CoverPath, string? AttachmentPath, int DecisionLevel, string? IntroductionPath = null);
 
 /// <summary>Finestre di dialogo semplici, costruite da codice.</summary>
 public static class Dialogs
@@ -240,6 +240,7 @@ public static class Dialogs
         levelBox.SelectionChanged += (_, _) => ShowRoute();
         ShowRoute();
 
+        var introBox = AddFilePicker(root, "Copertina 0 · introduzione (PDF o Word)");
         var coverBox = AddFilePicker(root, "Contropagina (PDF o Word)");
         var attachmentBox = AddFilePicker(root, "Allegato (PDF o Word)");
         root.Children.Add(Muted("Se non scegli i documenti, vengono creati documenti di esempio.", new Thickness(0, 12, 0, 0)));
@@ -261,7 +262,8 @@ public static class Dialogs
             nameBox.Text.Trim(),
             string.IsNullOrWhiteSpace(coverBox.Text) ? null : coverBox.Text,
             string.IsNullOrWhiteSpace(attachmentBox.Text) ? null : attachmentBox.Text,
-            levels[Math.Max(0, levelBox.SelectedIndex)]);
+            levels[Math.Max(0, levelBox.SelectedIndex)],
+            string.IsNullOrWhiteSpace(introBox.Text) ? null : introBox.Text);
     }
 
     // ---------- Firma ----------

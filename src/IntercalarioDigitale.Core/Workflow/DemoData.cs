@@ -108,7 +108,15 @@ public static class DemoData
         // Ogni pratica parte dal Capo Sezione, che sceglie il livello decisionale (0 = si ferma al Reparto, 4 = C4 … 1 = C1).
         library.CreatePractice("Fattura Fornitore Alpha", "verdi", year: DemoYear, decisionLevel: 4);
 
-        var p2 = library.CreatePractice("Contratto Collaborazione Beta", "verdi", year: DemoYear, decisionLevel: 0);
+        // La copertina d'introduzione di questa pratica è un Word (si legge in sola lettura).
+        var p2 = WithTempFile(
+            "copertina.docx",
+            SampleWordFactory.Create(
+                "Copertina",
+                "Contratto Collaborazione Beta",
+                "Introduzione alla pratica: contratto di collaborazione con il fornitore Beta.",
+                "Si sottopone alla firma l'accordo allegato, con le condizioni economiche."),
+            path => library.CreatePractice("Contratto Collaborazione Beta", "verdi", year: DemoYear, decisionLevel: 0, introductionPath: path));
         library.AddAttachment(p2.Id, "Condizioni economiche", parentId: FirstAttachmentId(library, p2.Id));
         library.Engine.Forward(p2.Id, "verdi", new ForwardTarget(TransferMode.Forward, "rossi"));
 

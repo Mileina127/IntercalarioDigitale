@@ -5,6 +5,12 @@ public sealed class BinderManifest
     public string Version { get; init; } = "1.0";
     public CoverDocument Cover { get; set; } = new();
 
+    /// <summary>
+    /// Copertina d'introduzione della pratica, trattata come «allegato 0»: si vede da sola al centro,
+    /// senza contropagina. Manca nei vecchi intercalari.
+    /// </summary>
+    public AttachmentDocument? Introduction { get; set; }
+
     /// <summary>Documenti allegati alla contropagina (etichette 1…n; la contropagina stessa è la 0).</summary>
     public List<AttachmentDocument> CoverAttachments { get; set; } = [];
 

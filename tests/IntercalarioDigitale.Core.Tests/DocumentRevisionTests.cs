@@ -199,8 +199,8 @@ public sealed class DocumentRevisionTests
         var binder = library.GetBinderPath("2.026_2");
         var manifest = library.Binders.LoadManifest(binder);
 
-        Assert.Equal(new[] { "1", "L1.1", "2" }, BinderLayout.AttachmentSide(manifest).Select(i => i.Label));
-        var word = BinderLayout.AttachmentSide(manifest).Single(i => i.IsWord);
+        Assert.Equal(new[] { "0", "1", "L1.1", "2" }, BinderLayout.AttachmentSide(manifest).Select(i => i.Label));
+        var word = BinderLayout.AttachmentSide(manifest).Single(i => i.IsWord && i.HasOriginal);
         Assert.Equal(1, word.Revision);
         Assert.True(word.HasOriginal);
         Assert.True(File.Exists(Path.Combine(binder, word.OriginalRelativePath!)));

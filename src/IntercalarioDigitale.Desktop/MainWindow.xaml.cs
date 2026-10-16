@@ -187,7 +187,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var practice = _library.CreatePractice(input.Name, _currentUserId, input.CoverPath, input.AttachmentPath, decisionLevel: input.DecisionLevel);
+            var practice = _library.CreatePractice(input.Name, _currentUserId, input.CoverPath, input.AttachmentPath, decisionLevel: input.DecisionLevel, introductionPath: input.IntroductionPath);
             RefreshAll();
             SelectRow(practice.Id);
         }
