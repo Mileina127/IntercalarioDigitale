@@ -20,11 +20,15 @@ public sealed record BinderItem(
 
 /// <summary>
 /// Calcola quali documenti compaiono sui due lati del viewer e con quale etichetta:
-/// contropagina 0, poi 1…n; allegati 1…n, ciascuno seguito dai suoi annessi (L1.1, L1.2…).
+/// contropagina 0, poi 1…n; allegati 0 (la copertina d'introduzione, che si vede da sola) e 1…n,
+/// ciascuno seguito dai suoi annessi (L1.1, L1.2…).
 /// </summary>
 public static class BinderLayout
 {
     public const string CoverDocumentId = "cover";
+
+    /// <summary>Id della copertina d'introduzione (allegato 0).</summary>
+    public const string IntroductionDocumentId = "intro";
 
     public static IReadOnlyList<BinderItem> CoverSide(BinderManifest manifest)
     {
@@ -49,6 +53,11 @@ public static class BinderLayout
         bool IsTopLevel(AttachmentDocument a) => string.IsNullOrEmpty(a.ParentId) || !ids.Contains(a.ParentId);
 
         var items = new List<BinderItem>();
+        if (manifest.Introduction is { } introduction)
+        {
+            items.Add(Make(IntroductionDocumentId, "0", introduction.Title, introduction, false));
+        }
+
         var number = 0;
         foreach (var attachment in all.Where(IsTopLevel))
         {

@@ -87,7 +87,8 @@ public sealed class PracticeLibrary
         string? coverPdfPath = null,
         string? attachmentPdfPath = null,
         int? year = null,
-        int decisionLevel = 0)
+        int decisionLevel = 0,
+        string? introductionPath = null)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -119,7 +120,16 @@ public sealed class PracticeLibrary
                 File.WriteAllBytes(attachment, SamplePdfFactory.Create(name, $"Allegato alla pratica {id}", 4));
             }
 
+            // Ogni pratica ha la copertina d'introduzione (allegato 0), che si vede da sola, senza contropagina.
+            var introduction = introductionPath;
+            if (string.IsNullOrWhiteSpace(introduction))
+            {
+                introduction = Path.Combine(tempFolder, "copertina.pdf");
+                File.WriteAllBytes(introduction, SamplePdfFactory.Create("Copertina", $"Pratica {id} · {name}", 1));
+            }
+
             Binders.CreateNew(binderPath, cover, $"Contropagina {id}");
+            Binders.SetIntroduction(binderPath, introduction, "Copertina");
             Binders.AddAttachment(binderPath, attachment, name);
         }
         finally
@@ -154,6 +164,13 @@ public sealed class PracticeLibrary
     {
         var binderPath = GetBinderPath(practiceId);
         return WithPdf(filePath, title, $"Allegato alla pratica {practiceId}", path => Binders.AddAttachment(binderPath, path, title, parentId));
+    }
+
+    /// <summary>Aggiunge la copertina d'introduzione (allegato 0) a una pratica che non ce l'ha; senza file ne genera una di esempio.</summary>
+    public AttachmentDocument AddIntroduction(string practiceId, string? filePath = null)
+    {
+        var binderPath = GetBinderPath(practiceId);
+        return WithPdf(filePath, "Copertina", $"Pratica {practiceId}", path => Binders.SetIntroduction(binderPath, path, "Copertina"));
     }
 
     /// <summary>Aggiunge un documento alla contropagina della pratica; senza PDF ne genera uno di esempio.</summary>

@@ -87,7 +87,7 @@
 
             <Grid Grid.Column="0">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition x:Name="CoverColumn" Width="*"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <local:PdfPane x:Name="CoverPane" Grid.Column="0" Margin="0,0,6,0"/>

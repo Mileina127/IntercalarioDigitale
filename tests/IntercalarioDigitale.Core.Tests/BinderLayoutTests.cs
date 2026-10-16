@@ -123,7 +123,7 @@ public sealed class BinderLayoutTests
         var manifest = library.Binders.LoadManifest(library.GetBinderPath("2.026_3"));
 
         Assert.Equal(new[] { "0", "1", "2" }, BinderLayout.CoverSide(manifest).Select(i => i.Label));
-        Assert.Equal(new[] { "1", "L1.1", "L1.2", "2", "3" }, BinderLayout.AttachmentSide(manifest).Select(i => i.Label));
+        Assert.Equal(new[] { "0", "1", "L1.1", "L1.2", "2", "3" }, BinderLayout.AttachmentSide(manifest).Select(i => i.Label));
         Assert.All(
             BinderLayout.CoverSide(manifest).Concat(BinderLayout.AttachmentSide(manifest)),
             i => Assert.True(File.Exists(Path.Combine(library.GetBinderPath("2.026_3"), i.RelativePdfPath))));
